@@ -284,7 +284,7 @@ async def recibir_audio_wifi(request: Request):
 # --- 5. ARRANQUE DEL SERVIDOR ---
 # ==============================================================================
 if __name__ == "__main__":
-     descargar_modelo_si_no_existe()   # ← línea nueva
+    descargar_modelo_si_no_existe()   # ← línea nueva
     print("🧠 Cargando modelo de Inteligencia Artificial...")
     model = tf.keras.models.load_model(MODEL_PATH)
     print("✅ Modelo listo.")
