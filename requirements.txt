@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+numpy
+tensorflow
+librosa
+scipy
+pandas
+openpyxl
+requests
+gdown
