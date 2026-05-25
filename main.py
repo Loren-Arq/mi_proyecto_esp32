@@ -47,8 +47,8 @@ FEED_DISTANCIA    = "distancia-mm"
 FEED_AMPLITUD     = "amplitud-db"
 
 # 📍 COORDENADAS FIJAS DEL SENSOR
-LATITUD  = 14.5875
-LONGITUD = -90.552917
+LATITUD  = 14.58849
+LONGITUD = -90.55330
 
 # Reporte Excel local
 TIMESTAMP_INICIO = datetime.now().strftime("%Y%m%d_%H%M%S")
