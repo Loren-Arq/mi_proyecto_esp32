@@ -14,6 +14,8 @@ import uvicorn
 from scipy.signal import butter, lfilter
 from contextlib import asynccontextmanager
 import traceback
+import threading
+
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
@@ -371,14 +373,12 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/predict")
-
-async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks):
+async def recibir_audio_wifi(request: Request):
     try:
         timestamp_llegada_railway = int(time.time() * 1000)
         raw_audio    = await request.body()
         distancia_mm = request.headers.get("X-Distance", "?")
         ts_esp32_str = request.headers.get("X-Timestamp-ESP32", "0")
-        print(f"🔍 DEBUG: Timestamp crudo del ESP32 = {ts_esp32_str}") # <-- AÑADE ES
 
         ahora          = datetime.now()
         hora_detectada = ahora.strftime("%H:%M:%S")
@@ -392,19 +392,17 @@ async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks
         except:
             latencia_ms = -1
 
-        print(f"📡 Audio recibido [{hora_detectada}] — "
-              f"Distancia: {distancia_mm}mm — "
-              f"Latencia red: {latencia_ms}ms")
+        print(f"🔍 DEBUG: Timestamp crudo del ESP32 = {ts_esp32_str}")
+        print(f"📡 Audio recibido [{hora_detectada}] — Distancia: {distancia_mm}mm — Latencia red: {latencia_ms}ms")
 
-        background_tasks.add_task(
-            procesar_audio_e_inferencia,
-            raw_audio,
-            distancia_mm,
-            hora_detectada,
-            timestamp_file,
-            timestamp_llegada_railway,
-            latencia_ms
+        # 🔥 CAMBIO CLAVE: Reemplazamos background_tasks por un hilo nativo de Python
+        hilo_procesamiento = threading.Thread(
+            target=procesar_audio_e_inferencia,
+            args=(raw_audio, distancia_mm, hora_detectada, timestamp_file, timestamp_llegada_railway, latencia_ms)
         )
+        hilo_procesamiento.daemon = True
+        hilo_procesamiento.start()
+        print("🧵 Hilo de procesamiento en segundo plano iniciado con éxito.")
 
         return {
             "status":   "recibido",
@@ -415,6 +413,7 @@ async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks
     except Exception as e:
         print(f"❌ Error recibiendo petición: {e}")
         return {"status": "error", "message": str(e)}
+
 
 
 # ==============================================================================
