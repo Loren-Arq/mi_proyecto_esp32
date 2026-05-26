@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 numpy
-tensorflow
+tensorflow-cpu==2.21.0
 librosa
 scipy
 pandas
