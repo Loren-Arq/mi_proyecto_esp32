@@ -14,6 +14,7 @@ import uvicorn
 from scipy.signal import butter, lfilter
 from contextlib import asynccontextmanager
 import traceback
+from Adafruit_IO import Client
 
 
 
@@ -264,15 +265,11 @@ def analizar_mosquito(file_path, model):
         print(f"\n❌ [ERROR EN MATRIZ DE IA / AUDIO]: {e}")
         return 0.0, 0.0, -80.0, "Error en procesamiento"
 
-
-# ==============================================================================
-# --- 5. PROCESAMIENTO EN SEGUNDO PLANO ---
-# ==============================================================================
 # ==============================================================================
 # --- 5. PROCESAMIENTO EN SEGUNDO PLANO Y ENVÍO ---
 # ==============================================================================
 
-def enviar_todos_a_adafruit(prob, freq, distancia, amp, lat_red, lat_cnn):
+def enviar_todos_a_adafruit(prob, freq, distancia_mm, amp, lat_red, lat_cnn):
     """Función independiente encargada estrictamente de la conexión con Adafruit"""
     username = os.getenv("ADAFRUIT_IO_USERNAME")
     key = os.getenv("ADAFRUIT_IO_KEY")
@@ -281,17 +278,31 @@ def enviar_todos_a_adafruit(prob, freq, distancia, amp, lat_red, lat_cnn):
         print("⚠️ Error: Faltan las variables de entorno en Railway. Configúralas en el panel de control.")
         raise ValueError("Credenciales de Adafruit ausentes.")
         
-    # Aquí va tu lógica física de envío (ej. aio.send_data o peticiones HTTP a Adafruit)
-    # Asegúrate de mapear bien tus feeds.
-    print("🚀 Datos enviados a Adafruit IO correctamente.")
+    try:
+        # Inicializar el cliente de Adafruit
+        aio = Client(username, key)
+        
+        # Envío de datos con filtros numéricos seguros
+        aio.send_data('feed-probabilidad', float(prob))
+        aio.send_data('feed-frecuencia', float(freq))
+        
+        try:
+            aio.send_data('feed-distancia', int(distancia_mm))
+        except:
+            print(f"⚠️ Advertencia: No se pudo enviar distancia válida ('{distancia_mm}')")
+        
+        print("🚀 Datos enviados a Adafruit IO correctamente.")
+        
+    except Exception as e:
+        print(f"❌ Error físico al conectar o enviar a Adafruit: {e}")
+        raise e
 
 
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                  timestamp_file, ts_llegada, latencia_red_ms):
     """Lógica pesada en segundo plano — no congela al ESP32"""
-    global contador_evento, resultados
+    global contador_evento
     
-    # Inicializamos variables por seguridad en caso de un fallo temprano
     nombre_archivo = f'audio_{timestamp_file}.wav'
     prob, freq, amp_db, armonicos = 0.0, 0.0, 0.0, "N/A"
     latencia_cnn, latencia_total = 0, 0
@@ -323,28 +334,12 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         latencia_cnn   = ts_fin_cnn - ts_inicio_cnn
         latencia_total = latencia_cnn + max(latencia_red_ms, 0)
         
-        # 6. Enviar a Adafruit IO llamando a la función externa
+        # 6. Enviar a Adafruit IO llamando a la función externa limpiamente
         print("🚀 Intentando enviar datos a Adafruit IO...")
         enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
         print("✅ Envío a Adafruit completado con éxito.")
 
-        # 7. Guardar en Excel local (Mover aquí evita el error previo de matrices)
-        resultados.append({
-            'Evento':                contador_evento,
-            'Archivo':               nombre_archivo,
-            'Distancia (mm)':        distancia_mm,
-            'Hora Detectada':        hora_detectada,
-            'Probabilidad':          f"{prob:.2%}",
-            'Frecuencia Central':    f"{freq:.2f} Hz",
-            'Amplitud (dB)':         f"{amp_db:.2f} dB",
-            'Armónicos (2x|3x|4x)':  armonicos,
-            'Latencia Red (ms)':     latencia_red_ms,
-            'Latencia CNN (ms)':     latencia_cnn,
-            'Latencia Total (ms)':   latencia_total
-        })
-        pd.DataFrame(resultados).to_excel(EXCEL_NAME, index=False)
-
-        # 8. Reporte en consola en caso de ÉXITO
+        # 7. Reporte estético en consola en caso de ÉXITO (Sin Excel local)
         sep = "─" * 65
         print(f"\n{sep}")
         print(f"📊 EVENTO #{contador_evento} PROCESADO CON ÉXITO  [{hora_detectada}]")
@@ -364,7 +359,6 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         contador_evento += 1
 
     except Exception as e:
-        # ESTO CAPTURARÁ EL ERROR REAL (Sea de TFLite, de Adafruit o del archivo)
         print("💥 ERROR CRÍTICO EN LA TAREA EN SEGUNDO PLANO:")
         traceback.print_exc()
 
@@ -396,11 +390,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+from fastapi import BackgroundTasks # 👈 Asegúrate de tener esta importación arriba
+
 @app.post("/predict")
-async def recibir_audio_wifi(request: Request):
+def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks): # 👈 Agrega background_tasks aquí
     try:
+        # Leer el cuerpo de forma síncrona segura
+        import asyncio
+        raw_audio = asyncio.run(request.body())
+        
         timestamp_llegada_railway = int(time.time() * 1000)
-        raw_audio    = await request.body()
         distancia_mm = request.headers.get("X-Distance", "?")
         ts_esp32_str = request.headers.get("X-Timestamp-ESP32", "0")
 
@@ -419,14 +418,16 @@ async def recibir_audio_wifi(request: Request):
         print(f"🔍 DEBUG: Timestamp crudo del ESP32 = {ts_esp32_str}")
         print(f"📡 Audio recibido [{hora_detectada}] — Distancia: {distancia_mm}mm — Latencia red: {latencia_ms}ms")
 
-        # 🔥 CAMBIO CLAVE: Reemplazamos background_tasks por un hilo nativo de Python
-        hilo_procesamiento = threading.Thread(
-            target=procesar_audio_e_inferencia,
-            args=(raw_audio, distancia_mm, hora_detectada, timestamp_file, timestamp_llegada_railway, latencia_ms)
+        # ❌ BORRA ESTAS LÍNEAS QUE MATAN TU SERVIDOR:
+        # hilo_procesamiento = threading.Thread(...)
+        # hilo_procesamiento.start()
+
+        #  REEMPLÁZALAS POR ESTA LÍNEA SEGURA:
+        background_tasks.add_task(
+            procesar_audio_e_inferencia,
+            raw_audio, distancia_mm, hora_detectada, timestamp_file, timestamp_llegada_railway, latencia_ms
         )
-        hilo_procesamiento.daemon = True
-        hilo_procesamiento.start()
-        print("🧵 Hilo de procesamiento en segundo plano iniciado con éxito.")
+        print("🧵 Tarea de procesamiento registrada de forma segura en FastAPI.")
 
         return {
             "status":   "recibido",
@@ -437,6 +438,7 @@ async def recibir_audio_wifi(request: Request):
     except Exception as e:
         print(f"❌ Error recibiendo petición: {e}")
         return {"status": "error", "message": str(e)}
+
 
 
 
