@@ -38,12 +38,12 @@ ADAFRUIT_IO_KEY      = "Riv382&&sol"        # 🔴 Cambia esto
 
 # 📍 Feeds que debes crear en io.adafruit.com con exactamente estos nombres:
 #    probabilidad-aedes  /  frecuencia-hz  /  distancia-mm  /  amplitud-db
-FEED_PROBABILIDAD = "probabilidad-aedes"
-FEED_FRECUENCIA   = "frecuencia-hz"
-FEED_DISTANCIA    = "distancia-mm"
-FEED_AMPLITUD     = "amplitud-db"
-FEED_LATENCIA_RED = "latencia-red-ms"
-FEED_LATENCIA_CNN = "latencia-cnn-ms"
+FEED_PROBABILIDAD = "feed-probabilidad"
+FEED_FRECUENCIA   = "feed-frecuencia"
+FEED_DISTANCIA    = "feed-distancia"
+FEED_AMPLITUD     = "feed-amplitud"
+FEED_LATENCIA_RED = "feed-latencia-red"
+FEED_LATENCIA_CNN = "feed-latencia-cnn"
 FEED_UBICACION    = "sensor-ubicacion"
 
 # 📍 COORDENADAS FIJAS DEL SENSOR
