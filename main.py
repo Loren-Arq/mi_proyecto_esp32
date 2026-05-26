@@ -389,15 +389,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-
-from fastapi import BackgroundTasks # 👈 Asegúrate de tener esta importación arriba
-
 @app.post("/predict")
-def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks): # 👈 Agrega background_tasks aquí
+async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks): # 👈 Agregamos 'async'
     try:
-        # Leer el cuerpo de forma síncrona segura
-        import asyncio
-        raw_audio = asyncio.run(request.body())
+        # ⚡️ Ahora leemos el cuerpo de forma asíncrona nativa, ultra rápido:
+        raw_audio = await request.body() 
         
         timestamp_llegada_railway = int(time.time() * 1000)
         distancia_mm = request.headers.get("X-Distance", "?")
@@ -415,20 +411,16 @@ def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks): # �
         except:
             latencia_ms = -1
 
-        print(f"🔍 DEBUG: Timestamp crudo del ESP32 = {ts_esp32_str}")
         print(f"📡 Audio recibido [{hora_detectada}] — Distancia: {distancia_mm}mm — Latencia red: {latencia_ms}ms")
 
-        # ❌ BORRA ESTAS LÍNEAS QUE MATAN TU SERVIDOR:
-        # hilo_procesamiento = threading.Thread(...)
-        # hilo_procesamiento.start()
-
-        #  REEMPLÁZALAS POR ESTA LÍNEA SEGURA:
+        # 🧵 Registramos la tarea pesada. FastAPI la procesará en segundo plano
         background_tasks.add_task(
             procesar_audio_e_inferencia,
             raw_audio, distancia_mm, hora_detectada, timestamp_file, timestamp_llegada_railway, latencia_ms
         )
-        print("🧵 Tarea de procesamiento registrada de forma segura en FastAPI.")
+        print("🧵 Tarea de procesamiento registrada con éxito en segundo plano.")
 
+        # 🚀 Esto se le responde al Arduino INMEDIATAMENTE, evitando el Timeout
         return {
             "status":   "recibido",
             "hora":     hora_detectada,
@@ -438,7 +430,6 @@ def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks): # �
     except Exception as e:
         print(f"❌ Error recibiendo petición: {e}")
         return {"status": "error", "message": str(e)}
-
 
 
 
