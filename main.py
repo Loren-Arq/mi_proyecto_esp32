@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from datetime import datetime
-from fastapi import FastAPI, Request, Header
+from fastapi import FastAPI, Request, Header, BackgroundTasks
 import uvicorn
 from scipy.signal import butter, lfilter
 import gdown
+from contextlib import asynccontextmanager
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
@@ -45,6 +46,9 @@ FEED_PROBABILIDAD = "probabilidad-aedes"
 FEED_FRECUENCIA   = "frecuencia-hz"
 FEED_DISTANCIA    = "distancia-mm"
 FEED_AMPLITUD     = "amplitud-db"
+FEED_LATENCIA_RED = "latencia-red-ms"
+FEED_LATENCIA_CNN = "latencia-cnn-ms"
+FEED_UBICACION    = "sensor-ubicacion"
 
 # 📍 COORDENADAS FIJAS DEL SENSOR
 LATITUD  = 14.58849
@@ -62,11 +66,11 @@ model            = None
 
 
 # ==============================================================================
-# --- 2. FUNCIÓN DE ENVÍO A ADAFRUIT IO ---
+# --- 3. FUNCIÓN DE ENVÍO A ADAFRUIT IO ---
 # ==============================================================================
 def enviar_a_adafruit(feed_key, valor):
     """
-    Envía un valor numérico a un feed de Adafruit IO vía REST.
+        Envía un valor numérico a un feed de Adafruit IO vía REST.
     Se llama en un hilo separado para no bloquear la recepción de audio.
     """
     try:
@@ -85,14 +89,39 @@ def enviar_a_adafruit(feed_key, valor):
     except Exception as e:
         print(f"  ❌ [{feed_key}] No se pudo enviar a Adafruit IO: {e}")
 
+def enviar_ubicacion_a_adafruit(prob):
+    """Envia coordenadas con valor al feed del mapa."""
+    try:
+        url = f"https://io.adafruit.com/api/v2/{ADAFRUIT_IO_USERNAME}/feeds/{FEED_UBICACION}/data"
+        headers = {
+            "X-AIO-Key":    ADAFRUIT_IO_KEY,
+            "Content-Type": "application/json"
+        }
+        # Formato especial que Adafruit necesita para el mapa
+        payload = {
+            "value":   str(round(prob * 100, 2)),
+            "lat":     LATITUD,
+            "lon":     LONGITUD,
+            "ele":     0
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        if response.status_code in [200, 201]:
+            print(f"  🗺️  [mapa] → ubicación enviada ✔")
+        else:
+            print(f"  ⚠️  [mapa] Error: {response.status_code}")
+    except Exception as e:
+        print(f"  ❌ [mapa] Error: {e}")
 
-def enviar_todos_a_adafruit(prob, freq, distancia, amp_db):
+
+def enviar_todos_a_adafruit(prob, freq, distancia, amp_db, latencia_red, latencia_cnn):
     """Lanza 4 hilos en paralelo para enviar todos los feeds a la vez."""
     datos = [
         (FEED_PROBABILIDAD, round(prob * 100, 2)),   # como porcentaje numérico
         (FEED_FRECUENCIA,   round(freq, 2)),
         (FEED_DISTANCIA,    distancia),
         (FEED_AMPLITUD,     round(amp_db, 2)),
+        (FEED_LATENCIA_RED, latencia_red),
+        (FEED_LATENCIA_CNN, latencia_cnn),
     ]
     hilos = []
     for feed, valor in datos:
@@ -100,13 +129,19 @@ def enviar_todos_a_adafruit(prob, freq, distancia, amp_db):
         h.daemon = True
         h.start()
         hilos.append(h)
+        # Hilo especial para el mapa con coordenadas
+    h_mapa = threading.Thread(target=enviar_ubicacion_a_adafruit, args=(prob,))
+    h_mapa.daemon = True
+    h_mapa.start()
+    hilos.append(h_mapa)
+
     # Espera máximo 6 segundos a que terminen todos
     for h in hilos:
         h.join(timeout=6)
 
 
 # ==============================================================================
-# --- 3. FUNCIONES DE AUDIO Y PROCESAMIENTO CNN ---
+# --- 4. FUNCIONES DE AUDIO Y PROCESAMIENTO CNN ---
 # ==============================================================================
 def filtro_pasa_alta(data, sr):
     cutoff = 300
@@ -198,22 +233,16 @@ def analizar_mosquito(file_path, model):
 
 
 # ==============================================================================
-# --- 4. BACKEND RECEPTOR HTTP (FASTAPI) ---
+# --- 5. PROCESAMIENTO EN SEGUNDO PLANO ---
 # ==============================================================================
-app = FastAPI()
 
-@app.post("/predict")
-async def recibir_audio_wifi(request: Request):
+def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
+                                 timestamp_file, ts_llegada, latencia_red_ms):
+    """Lógica pesada en segundo plano — no congela al ESP32"""
     global contador_evento, resultados, model
-
     try:
-        # 1. Capturar ráfaga binaria y metadatos
-        raw_audio    = await request.body()
-        distancia_mm = request.headers.get("X-Distance", "?")
-
-        ahora          = datetime.now()
-        hora_detectada = ahora.strftime("%H:%M:%S")
-        timestamp_file = ahora.strftime("%Y%m%d_%H%M%S")
+        # 1. Medir inicio de CNN
+        ts_inicio_cnn = int(time.time() * 1000)
 
         # 2. Conversión y amplificación
         samples  = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32)
@@ -221,7 +250,8 @@ async def recibir_audio_wifi(request: Request):
         samples  = np.clip(samples, -32768, 32767).astype(np.int16)
 
         nombre_archivo = f'audio_{timestamp_file}.wav'
-        ruta_wav       = os.path.join(OUTPUT_DIR, nombre_archivo)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        ruta_wav = os.path.join(OUTPUT_DIR, nombre_archivo)
 
         # 3. Guardar .wav en disco
         with wave.open(ruta_wav, 'wb') as wav:
@@ -233,28 +263,36 @@ async def recibir_audio_wifi(request: Request):
         # 4. Análisis CNN
         prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav, model)
 
-        # 5. ☁️ Enviar los 4 datos a Adafruit IO en paralelo (hilo de fondo)
+        # 5. Calcular latencias
+        ts_fin_cnn     = int(time.time() * 1000)
+        latencia_cnn   = ts_fin_cnn - ts_inicio_cnn
+        latencia_total = latencia_cnn + max(latencia_red_ms, 0)
+
+        # 6. Enviar a Adafruit IO con latencias
         hilo_adafruit = threading.Thread(
             target=enviar_todos_a_adafruit,
-            args=(prob, freq, distancia_mm, amp_db)
+            args=(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
         )
         hilo_adafruit.daemon = True
         hilo_adafruit.start()
 
-        # 6. Guardar en Excel local
+        # 7. Guardar en Excel local
         resultados.append({
-            'Evento':              contador_evento,
-            'Archivo':             nombre_archivo,
-            'Distancia (mm)':      distancia_mm,
-            'Hora Detectada':      hora_detectada,
-            'Probabilidad':        f"{prob:.2%}",
-            'Frecuencia Central':  f"{freq:.2f} Hz",
-            'Amplitud (dB)':       f"{amp_db:.2f} dB",
-            'Armónicos (2x|3x|4x)': armonicos
+            'Evento':                contador_evento,
+            'Archivo':               nombre_archivo,
+            'Distancia (mm)':        distancia_mm,
+            'Hora Detectada':        hora_detectada,
+            'Probabilidad':          f"{prob:.2%}",
+            'Frecuencia Central':    f"{freq:.2f} Hz",
+            'Amplitud (dB)':         f"{amp_db:.2f} dB",
+            'Armónicos (2x|3x|4x)':  armonicos,
+            'Latencia Red (ms)':     latencia_red_ms,
+            'Latencia CNN (ms)':     latencia_cnn,
+            'Latencia Total (ms)':   latencia_total
         })
         pd.DataFrame(resultados).to_excel(EXCEL_NAME, index=False)
 
-        # 7. Reporte en consola
+        # 8. Reporte en consola
         sep = "─" * 65
         print(f"\n{sep}")
         print(f"📊 EVENTO #{contador_evento} PROCESADO  [{hora_detectada}]")
@@ -265,29 +303,84 @@ async def recibir_audio_wifi(request: Request):
         print(f"  Intensidad Sonido  : {amp_db:.2f} dB")
         print(f"  Espectro Armónicos : {armonicos}")
         print(f"  Probabilidad Aedes : {prob:.2%}")
-        print(f"  ☁️  Enviando datos a Adafruit IO...")
+        print(f"  ⏱  Latencia Red    : {latencia_red_ms} ms")
+        print(f"  ⏱  Latencia CNN    : {latencia_cnn} ms")
+        print(f"  ⏱  Latencia Total  : {latencia_total} ms")
+        print(f"  ☁️  Datos enviados a Adafruit IO")
         print(f"{sep}\n")
 
         contador_evento += 1
+
+    except Exception as e:
+        print(f"❌ Error en procesamiento de fondo: {e}")
+  
+# ==============================================================================
+# --- 6+. ARRANQUE DEL SERVIDOR ---
+# ==============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global model
+    print("🚀 Levantando servidor FastAPI...")
+    descargar_modelo_si_no_existe()
+    print("🧠 Cargando modelo CNN...")
+    model = tf.keras.models.load_model(MODEL_PATH)
+    print("✅ Modelo listo.")
+    print(f"📊 Reporte Excel: {EXCEL_NAME}")
+    yield
+    print("🛑 Apagando servidor...")
+
+# ── Una sola declaración de app
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/predict")
+@app.post("/predict/")
+async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks):
+    try:
+        timestamp_llegada_railway = int(time.time() * 1000)
+        raw_audio    = await request.body()
+        distancia_mm = request.headers.get("X-Distance", "?")
+        ts_esp32_str = request.headers.get("X-Timestamp-ESP32", "0")
+
+        ahora          = datetime.now()
+        hora_detectada = ahora.strftime("%H:%M:%S")
+        timestamp_file = ahora.strftime("%Y%m%d_%H%M%S")
+
+        try:
+            ts_esp32    = int(ts_esp32_str)
+            latencia_ms = timestamp_llegada_railway - ts_esp32
+            if latencia_ms < 0 or latencia_ms > 60000:
+                latencia_ms = -1
+        except:
+            latencia_ms = -1
+
+        print(f"📡 Audio recibido [{hora_detectada}] — "
+              f"Distancia: {distancia_mm}mm — "
+              f"Latencia red: {latencia_ms}ms")
+
+        background_tasks.add_task(
+            procesar_audio_e_inferencia,
+            raw_audio,
+            distancia_mm,
+            hora_detectada,
+            timestamp_file,
+            timestamp_llegada_railway,
+            latencia_ms
+        )
+
         return {
-            "status":       "success",
-            "evento":       contador_evento - 1,
-            "probabilidad": f"{prob:.2%}"
+            "status":   "recibido",
+            "hora":     hora_detectada,
+            "latencia": f"{latencia_ms}ms"
         }
 
     except Exception as e:
-        print(f"❌ Error crítico procesando la petición HTTP: {e}")
+        print(f"❌ Error recibiendo petición: {e}")
         return {"status": "error", "message": str(e)}
 
 
 # ==============================================================================
-# --- 5. ARRANQUE DEL SERVIDOR ---
+# --- 7 PUNTO DE ENTRADA ---
 # ==============================================================================
 if __name__ == "__main__":
-    descargar_modelo_si_no_existe()   # ← línea nueva
-    print("🧠 Cargando modelo de Inteligencia Artificial...")
-    model = tf.keras.models.load_model(MODEL_PATH)
-    print("✅ Modelo listo.")
-    print(f"📊 Reporte Excel: {EXCEL_NAME}")
-    print(f"📡 Esperando señales del ESP32-S3 en el puerto {API_PORT}...\n")
     uvicorn.run(app, host="0.0.0.0", port=API_PORT, log_level="warning")
