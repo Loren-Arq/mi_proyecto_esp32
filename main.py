@@ -22,20 +22,24 @@ SAMPLE_RATE     = 16000
 RECORD_SECONDS  = 3
 OUTPUT_DIR      = 'AudiosMayo/Audio'
 FACTOR_AMP      = 10.0
-MODEL_PATH      = 'mi_modelo_aedes.keras'
-# ✅ PON esta función nueva:
-HF_MODEL_URL = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/mi_modelo_aedes.keras"
+# En configuración global — reemplaza MODEL_PATH y HF_MODEL_URL por:
+MODEL_WEIGHTS = 'pesos_aedes.weights.h5'
+MODEL_JSON    = 'arquitectura_aedes.json'
+HF_PESOS_URL  = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/pesos_aedes.weights.h5"
+HF_JSON_URL   = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/arquitectura_aedes.json"
 
+# ✅ PON esto en su lugar:
 def descargar_modelo_si_no_existe():
-    if not os.path.exists(MODEL_PATH):
-        print("⬇️  Descargando modelo desde HuggingFace...")
-        response = requests.get(HF_MODEL_URL, stream=True)
-        with open(MODEL_PATH, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print("✅ Modelo descargado correctamente.")
-    else:
-        print("✅ Modelo encontrado en disco.")
+    for url, path in [(HF_PESOS_URL, MODEL_WEIGHTS), (HF_JSON_URL, MODEL_JSON)]:
+        if not os.path.exists(path):
+            print(f"⬇️  Descargando {path}...")
+            response = requests.get(url, stream=True)
+            with open(path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            print(f"✅ {path} descargado.")
+        else:
+            print(f"✅ {path} encontrado en disco.")
 
 # 🌐 ADAFRUIT IO — Reemplaza con tus datos reales
 ADAFRUIT_IO_USERNAME = "Loren60"   # 🔴 Cambia esto
