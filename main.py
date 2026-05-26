@@ -323,15 +323,21 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
 # --- 6+. ARRANQUE DEL SERVIDOR ---
 # ==============================================================================
 
-@asynccontextmanager
+@@asynccontextmanager
 async def lifespan(app: FastAPI):
     global model
     print("🚀 Levantando servidor FastAPI...")
     descargar_modelo_si_no_existe()
     print("🧠 Cargando modelo CNN...")
-    model = tf.keras.models.load_model(MODEL_PATH)
+
+    # ✅ Cargar desde arquitectura + pesos por separado
+    with open(MODEL_JSON, 'r') as f:
+        model = tf.keras.models.model_from_json(f.read())
+    model.load_weights(MODEL_WEIGHTS)
+
     print("✅ Modelo listo.")
     print(f"📊 Reporte Excel: {EXCEL_NAME}")
+    print(f"📡 Esperando señales del ESP32-S3 en el puerto {API_PORT}...\n")
     yield
     print("🛑 Apagando servidor...")
 
