@@ -21,7 +21,9 @@ import traceback
 API_PORT        = int(os.environ.get("PORT", 8080))
 SAMPLE_RATE     = 16000
 RECORD_SECONDS  = 3
-OUTPUT_DIR      = 'AudiosMayo/Audio'
+# Esto creará una carpeta llamada "audios_temp" dentro del mismo directorio del proyecto
+OUTPUT_DIR = os.path.join(os.getcwd(), "audios_temp")
+
 FACTOR_AMP      = 10.0
 MODEL_PATH = 'mi_modelo_aedes.tflite'
 
