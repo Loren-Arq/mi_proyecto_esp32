@@ -22,10 +22,9 @@ SAMPLE_RATE     = 16000
 RECORD_SECONDS  = 3
 OUTPUT_DIR      = 'AudiosMayo/Audio'
 FACTOR_AMP      = 10.0
-MODEL_PATH      = 'mi_modelo_aedes.h5'
-
+MODEL_PATH      = 'mi_modelo_aedes.keras'
 # ✅ PON esta función nueva:
-HF_MODEL_URL = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/mi_modelo_aedes.h5"
+HF_MODEL_URL = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/mi_modelo_aedes.keras"
 
 def descargar_modelo_si_no_existe():
     if not os.path.exists(MODEL_PATH):
