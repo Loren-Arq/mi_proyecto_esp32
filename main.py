@@ -60,19 +60,27 @@ resultados       = []
 contador_evento  = 1
 model            = None
 
-
 # ==============================================================================
 # --- 3. FUNCIÓN DE ENVÍO A ADAFRUIT IO ---
 # ==============================================================================
 def enviar_a_adafruit(feed_key, valor):
     """
-        Envía un valor numérico a un feed de Adafruit IO vía REST.
+    Envía un valor numérico a un feed de Adafruit IO vía REST.
     Se llama en un hilo separado para no bloquear la recepción de audio.
     """
+    # 1. Extraemos de forma segura las variables configuradas en Railway
+    username = os.getenv("ADAFRUIT_IO_USERNAME")
+    aio_key = os.getenv("ADAFRUIT_IO_KEY")
+    
+    if not username or not aio_key:
+        print("⚠️ Error: Faltan las variables de entorno en Railway.")
+        return
+    
     try:
-        url = f"https://io.adafruit.com/api/v2/{ADAFRUIT_IO_USERNAME}/feeds/{feed_key}/data"
+        # 2. Corregido: Usamos 'username' y 'aio_key' que acabamos de leer arriba
+        url = f"https://io.adafruit.com/api/v2/{username}/feeds/{feed_key}/data"
         headers = {
-            "X-AIO-Key": ADAFRUIT_IO_KEY,
+            "X-AIO-Key": aio_key,
             "Content-Type": "application/json"
         }
         payload = {"value": str(valor)}
@@ -87,10 +95,18 @@ def enviar_a_adafruit(feed_key, valor):
 
 def enviar_ubicacion_a_adafruit(prob):
     """Envia coordenadas con valor al feed del mapa."""
+    username = os.getenv("ADAFRUIT_IO_USERNAME")
+    aio_key = os.getenv("ADAFRUIT_IO_KEY")
+    
+    if not username or not aio_key:
+        print("⚠️ Error: Faltan las variables de entorno para el mapa en Railway.")
+        return
+
     try:
-        url = f"https://io.adafruit.com/api/v2/{ADAFRUIT_IO_USERNAME}/feeds/{FEED_UBICACION}/data"
+        # Corregido: Usamos las mismas variables locales de entorno
+        url = f"https://io.adafruit.com/api/v2/{username}/feeds/{FEED_UBICACION}/data"
         headers = {
-            "X-AIO-Key":    ADAFRUIT_IO_KEY,
+            "X-AIO-Key":    aio_key,
             "Content-Type": "application/json"
         }
         # Formato especial que Adafruit necesita para el mapa
@@ -104,9 +120,10 @@ def enviar_ubicacion_a_adafruit(prob):
         if response.status_code in [200, 201]:
             print(f"  🗺️  [mapa] → ubicación enviada ✔")
         else:
-            print(f"  ⚠️  [mapa] Error: {response.status_code}")
+            print(f"  ⚠️  [mapa] Error: {response.status_code} — {response.text}")
     except Exception as e:
         print(f"  ❌ [mapa] Error: {e}")
+
 
 
 def enviar_todos_a_adafruit(prob, freq, distancia, amp_db, latencia_red, latencia_cnn):
