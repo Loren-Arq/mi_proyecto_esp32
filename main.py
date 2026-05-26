@@ -12,7 +12,6 @@ from datetime import datetime
 from fastapi import FastAPI, Request, Header, BackgroundTasks
 import uvicorn
 from scipy.signal import butter, lfilter
-import gdown
 from contextlib import asynccontextmanager
 
 # ==============================================================================
@@ -24,17 +23,20 @@ RECORD_SECONDS  = 3
 OUTPUT_DIR      = 'AudiosMayo/Audio'
 FACTOR_AMP      = 10.0
 MODEL_PATH      = 'mi_modelo_aedes.h5'
-GDRIVE_ID = "1nGwZzvRF6HQrS5HhUWK5xzz3hZcqJwIx"
+
+# ✅ PON esta función nueva:
+HF_MODEL_URL = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/mi_modelo_aedes.h5"
 
 def descargar_modelo_si_no_existe():
     if not os.path.exists(MODEL_PATH):
-        print("⬇️  Descargando modelo desde Google Drive...")
-        gdown.download(
-            f"https://drive.google.com/uc?id={GDRIVE_ID}",
-            MODEL_PATH,
-            quiet=False
-        )
-        print("✅ Modelo descargado.")
+        print("⬇️  Descargando modelo desde HuggingFace...")
+        response = requests.get(HF_MODEL_URL, stream=True)
+        with open(MODEL_PATH, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        print("✅ Modelo descargado correctamente.")
+    else:
+        print("✅ Modelo encontrado en disco.")
 
 # 🌐 ADAFRUIT IO — Reemplaza con tus datos reales
 ADAFRUIT_IO_USERNAME = "Loren60"   # 🔴 Cambia esto
