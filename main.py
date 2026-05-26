@@ -14,7 +14,7 @@ import uvicorn
 from scipy.signal import butter, lfilter
 from contextlib import asynccontextmanager
 import traceback
-import threading
+
 
 
 # ==============================================================================
