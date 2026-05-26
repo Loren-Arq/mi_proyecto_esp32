@@ -22,6 +22,14 @@ SAMPLE_RATE     = 16000
 RECORD_SECONDS  = 3
 OUTPUT_DIR      = 'AudiosMayo/Audio'
 FACTOR_AMP      = 10.0
+MODEL_PATH = 'mi_modelo_aedes.tflite'
+
+# Variables globales para el intérprete TFLite
+interpreter    = None
+input_details  = None
+output_details = None
+
+
 # En configuración global — reemplaza MODEL_PATH y HF_MODEL_URL por:
 MODEL_WEIGHTS = 'pesos_aedes.weights.h5'
 MODEL_JSON    = 'arquitectura_aedes.json'
