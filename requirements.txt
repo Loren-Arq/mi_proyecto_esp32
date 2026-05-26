@@ -8,3 +8,4 @@ openpyxl
 scipy
 requests
 scikit-learn
+adafruit-io
