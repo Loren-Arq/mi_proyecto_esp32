@@ -38,8 +38,12 @@ output_details = None
 
 
 # 🌐 ADAFRUIT IO — Reemplaza con tus datos reales
-ADAFRUIT_IO_USERNAME = "Loren60"   # 🔴 Cambia esto
-ADAFRUIT_IO_KEY      = "Riv382&&sol"        # 🔴 Cambia esto
+import os
+
+# Tu código lee la llave de forma segura desde el panel de Railway
+ADAFRUIT_USERNAME = os.getenv("ADAFRUIT_AIO_USERNAME")
+ADAFRUIT_KEY = os.getenv("ADAFRUIT_AIO_KEY")
+
 
 # 📍 Feeds que debes crear en io.adafruit.com con exactamente estos nombres:
 #    probabilidad-aedes  /  frecuencia-hz  /  distancia-mm  /  amplitud-db
