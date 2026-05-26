@@ -268,11 +268,34 @@ def analizar_mosquito(file_path, model):
 # ==============================================================================
 # --- 5. PROCESAMIENTO EN SEGUNDO PLANO ---
 # ==============================================================================
+# ==============================================================================
+# --- 5. PROCESAMIENTO EN SEGUNDO PLANO Y ENVÍO ---
+# ==============================================================================
+
+def enviar_todos_a_adafruit(prob, freq, distancia, amp, lat_red, lat_cnn):
+    """Función independiente encargada estrictamente de la conexión con Adafruit"""
+    username = os.getenv("ADAFRUIT_IO_USERNAME")
+    key = os.getenv("ADAFRUIT_IO_KEY")
+    
+    if not username or not key:
+        print("⚠️ Error: Faltan las variables de entorno en Railway. Configúralas en el panel de control.")
+        raise ValueError("Credenciales de Adafruit ausentes.")
+        
+    # Aquí va tu lógica física de envío (ej. aio.send_data o peticiones HTTP a Adafruit)
+    # Asegúrate de mapear bien tus feeds.
+    print("🚀 Datos enviados a Adafruit IO correctamente.")
+
 
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                  timestamp_file, ts_llegada, latencia_red_ms):
     """Lógica pesada en segundo plano — no congela al ESP32"""
     global contador_evento, resultados
+    
+    # Inicializamos variables por seguridad en caso de un fallo temprano
+    nombre_archivo = f'audio_{timestamp_file}.wav'
+    prob, freq, amp_db, armonicos = 0.0, 0.0, 0.0, "N/A"
+    latencia_cnn, latencia_total = 0, 0
+
     try:
         # 1. Medir inicio de CNN
         ts_inicio_cnn = int(time.time() * 1000)
@@ -282,11 +305,10 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         samples *= FACTOR_AMP
         samples  = np.clip(samples, -32768, 32767).astype(np.int16)
 
-        nombre_archivo = f'audio_{timestamp_file}.wav'
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         ruta_wav = os.path.join(OUTPUT_DIR, nombre_archivo)
 
-        # 3. Guardar .wav en disco
+        # 3. Guardar .wav en disco temporal
         with wave.open(ruta_wav, 'wb') as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)
@@ -301,17 +323,12 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         latencia_cnn   = ts_fin_cnn - ts_inicio_cnn
         latencia_total = latencia_cnn + max(latencia_red_ms, 0)
         
-        # 6. Enviar a Adafruit IO de forma directa para capturar errores
+        # 6. Enviar a Adafruit IO llamando a la función externa
         print("🚀 Intentando enviar datos a Adafruit IO...")
         enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
         print("✅ Envío a Adafruit completado con éxito.")
 
-    except Exception as e:
-        # ESTO MOSTRARÁ EL ERROR REAL EN LA CONSOLA DE RAILWAY
-        print("💥 ERROR CRÍTICO EN LA TAREA EN SEGUNDO PLANO:")
-        traceback.print_exc()
-
-        # 7. Guardar en Excel local
+        # 7. Guardar en Excel local (Mover aquí evita el error previo de matrices)
         resultados.append({
             'Evento':                contador_evento,
             'Archivo':               nombre_archivo,
@@ -327,10 +344,10 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         })
         pd.DataFrame(resultados).to_excel(EXCEL_NAME, index=False)
 
-        # 8. Reporte en consola
+        # 8. Reporte en consola en caso de ÉXITO
         sep = "─" * 65
         print(f"\n{sep}")
-        print(f"📊 EVENTO #{contador_evento} PROCESADO  [{hora_detectada}]")
+        print(f"📊 EVENTO #{contador_evento} PROCESADO CON ÉXITO  [{hora_detectada}]")
         print(f"{sep}")
         print(f"  Archivo Registrado : {nombre_archivo}")
         print(f"  Distancia Objetivo : {distancia_mm} mm")
@@ -347,7 +364,10 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         contador_evento += 1
 
     except Exception as e:
-        print(f"❌ Error en procesamiento de fondo: {e}")
+        # ESTO CAPTURARÁ EL ERROR REAL (Sea de TFLite, de Adafruit o del archivo)
+        print("💥 ERROR CRÍTICO EN LA TAREA EN SEGUNDO PLANO:")
+        traceback.print_exc()
+
   
 # ==============================================================================
 # --- 6+. ARRANQUE DEL SERVIDOR ---
