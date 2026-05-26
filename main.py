@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, Header, BackgroundTasks
 import uvicorn
 from scipy.signal import butter, lfilter
 from contextlib import asynccontextmanager
+import traceback
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
@@ -291,14 +292,16 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         ts_fin_cnn     = int(time.time() * 1000)
         latencia_cnn   = ts_fin_cnn - ts_inicio_cnn
         latencia_total = latencia_cnn + max(latencia_red_ms, 0)
+        
+        # 6. Enviar a Adafruit IO de forma directa para capturar errores
+        print("🚀 Intentando enviar datos a Adafruit IO...")
+        enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
+        print("✅ Envío a Adafruit completado con éxito.")
 
-        # 6. Enviar a Adafruit IO con latencias
-        hilo_adafruit = threading.Thread(
-            target=enviar_todos_a_adafruit,
-            args=(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
-        )
-        hilo_adafruit.daemon = True
-        hilo_adafruit.start()
+    except Exception as e:
+        # ESTO MOSTRARÁ EL ERROR REAL EN LA CONSOLA DE RAILWAY
+        print("💥 ERROR CRÍTICO EN LA TAREA EN SEGUNDO PLANO:")
+        traceback.print_exc()
 
         # 7. Guardar en Excel local
         resultados.append({
@@ -366,13 +369,14 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/predict")
-@app.post("/predict/")
+
 async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks):
     try:
         timestamp_llegada_railway = int(time.time() * 1000)
         raw_audio    = await request.body()
         distancia_mm = request.headers.get("X-Distance", "?")
         ts_esp32_str = request.headers.get("X-Timestamp-ESP32", "0")
+        print(f"🔍 DEBUG: Timestamp crudo del ESP32 = {ts_esp32_str}") # <-- AÑADE ES
 
         ahora          = datetime.now()
         hora_detectada = ahora.strftime("%H:%M:%S")
