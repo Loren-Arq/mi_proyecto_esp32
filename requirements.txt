@@ -7,4 +7,4 @@ scipy
 pandas
 openpyxl
 requests
-keras==3.14.1
+
