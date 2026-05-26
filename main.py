@@ -30,24 +30,7 @@ input_details  = None
 output_details = None
 
 
-# En configuración global — reemplaza MODEL_PATH y HF_MODEL_URL por:
-MODEL_WEIGHTS = 'pesos_aedes.weights.h5'
-MODEL_JSON    = 'arquitectura_aedes.json'
-HF_PESOS_URL  = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/pesos_aedes.weights.h5"
-HF_JSON_URL   = "https://huggingface.co/Loren60/modelo-aedes/resolve/main/arquitectura_aedes.json"
 
-# ✅ PON esto en su lugar:
-def descargar_modelo_si_no_existe():
-    for url, path in [(HF_PESOS_URL, MODEL_WEIGHTS), (HF_JSON_URL, MODEL_JSON)]:
-        if not os.path.exists(path):
-            print(f"⬇️  Descargando {path}...")
-            response = requests.get(url, stream=True)
-            with open(path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            print(f"✅ {path} descargado.")
-        else:
-            print(f"✅ {path} encontrado en disco.")
 
 # 🌐 ADAFRUIT IO — Reemplaza con tus datos reales
 ADAFRUIT_IO_USERNAME = "Loren60"   # 🔴 Cambia esto
@@ -223,18 +206,29 @@ def analizar_mosquito(file_path, model):
         mel_spec    = librosa.feature.melspectrogram(y=y, sr=sr, fmin=200, fmax=2000, n_mels=128)
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
 
+        # --- REEMPLAZADO CON INFERENCIA TFLITE ---
         img = tf.image.resize(mel_spec_db[..., np.newaxis], (128, 128)).numpy()
         if np.max(img) - np.min(img) != 0:
             img = (img - np.min(img)) / (np.max(img) - np.min(img))
-        img = np.expand_dims(img, axis=0)
+        
+        # Convertimos la matriz a float32 y agregamos la dimensión de lote (Batch) requerida por TFLite
+        input_data = np.expand_dims(img, axis=0).astype(np.float32)
 
-        pred = model.predict(img, verbose=0)
+        # Inyectamos el espectrograma en el índice de entrada de TFLite
+        interpreter.set_tensor(input_details['index'], input_data)
+        
+        # Ejecutamos la predicción matemática compacta
+        interpreter.invoke()
+        
+        # Extraemos el resultado del tensor de salida
+        pred = interpreter.get_tensor(output_details['index'])
 
         if isinstance(pred, np.ndarray):
             probabilidad = float(pred.flatten()[0])
         else:
             probabilidad = float(pred)
 
+        # Tu filtro de validación de frecuencia para el aleteo del Aedes
         if (freq_dominante < 380.0) or (freq_dominante > 620.0):
             probabilidad = 0.0
 
@@ -252,7 +246,7 @@ def analizar_mosquito(file_path, model):
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                  timestamp_file, ts_llegada, latencia_red_ms):
     """Lógica pesada en segundo plano — no congela al ESP32"""
-    global contador_evento, resultados, model
+    global contador_evento, resultados
     try:
         # 1. Medir inicio de CNN
         ts_inicio_cnn = int(time.time() * 1000)
@@ -273,8 +267,8 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
             wav.setframerate(SAMPLE_RATE)
             wav.writeframes(samples.tobytes())
 
-        # 4. Análisis CNN
-        prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav, model)
+        # 4. Análisis CNN utilizando el intérprete global
+        prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav, interpreter)
 
         # 5. Calcular latencias
         ts_fin_cnn     = int(time.time() * 1000)
@@ -333,24 +327,26 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model
-    print("🚀 Levantando servidor FastAPI...")
-    descargar_modelo_si_no_existe()
-    print("🧠 Cargando modelo CNN...")
-
-    # ✅ Cargar desde arquitectura + pesos por separado
-    with open(MODEL_JSON, 'r') as f:
-        model = tf.keras.models.model_from_json(f.read())
-    model.load_weights(MODEL_WEIGHTS)
-
-    print("✅ Modelo listo.")
-    print(f"📊 Reporte Excel: {EXCEL_NAME}")
-    print(f"📡 Esperando señales del ESP32-S3 en el puerto {API_PORT}...\n")
+    global interpreter, input_details, output_details
+    print("🚀 Iniciando Servidor... Cargando motor TFLite.")
+    
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(f"❌ Error crítico: No se encontró el archivo '{MODEL_PATH}' en la raíz del proyecto.")
+        
+    # Inicializar el intérprete TFLite globalmente
+    interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+    interpreter.allocate_tensors()
+    
+    # Extraer las dimensiones requeridas de entrada y salida
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
+    print("✅ Motor TFLite cargado correctamente y listo para Railway.")
     yield
-    print("🛑 Apagando servidor...")
+    print("🛑 Servidor apagado.")
 
-# ── Una sola declaración de app
 app = FastAPI(lifespan=lifespan)
+
 
 @app.post("/predict")
 @app.post("/predict/")
