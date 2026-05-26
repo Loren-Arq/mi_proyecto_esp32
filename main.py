@@ -323,7 +323,7 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
 # --- 6+. ARRANQUE DEL SERVIDOR ---
 # ==============================================================================
 
-@@asynccontextmanager
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     global model
     print("🚀 Levantando servidor FastAPI...")
