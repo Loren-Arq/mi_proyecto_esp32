@@ -233,7 +233,7 @@ def analizar_mosquito(file_path, model):
         mel_spec    = librosa.feature.melspectrogram(y=y, sr=sr, fmin=200, fmax=2000, n_mels=128)
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
 
-        # --- REEMPLAZADO CON INFERENCIA TFLITE ---
+                # --- REEMPLAZADO CON INFERENCIA TFLITE ---
         img = tf.image.resize(mel_spec_db[..., np.newaxis], (128, 128)).numpy()
         if np.max(img) - np.min(img) != 0:
             img = (img - np.min(img)) / (np.max(img) - np.min(img))
@@ -269,38 +269,62 @@ def analizar_mosquito(file_path, model):
 # --- 5. PROCESAMIENTO EN SEGUNDO PLANO Y ENVÍO ---
 # ==============================================================================
 
+def enviar_a_adafruit_rest(username, key, feed_key, valor):
+    """Envía un dato de forma directa e independiente usando la API REST nativa de Adafruit"""
+    try:
+        url = f"https://adafruit.com{username}/feeds/{feed_key}/data"
+        headers = {
+            "X-AIO-Key": key,
+            "Content-Type": "application/json"
+        }
+        payload = {"value": str(valor)}
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        if response.status_code in [200, 201]:
+            print(f"  ☁️  [{feed_key}] → {valor} enviado con éxito")
+        else:
+            print(f"  ⚠️  [{feed_key}] Error Adafruit REST: {response.status_code}")
+    except Exception as e:
+        print(f"  ❌ [{feed_key}] Error de conexión: {e}")
+
 def enviar_todos_a_adafruit(prob, freq, distancia_mm, amp, lat_red, lat_cnn):
-    """Función independiente encargada estrictamente de la conexión con Adafruit"""
+    """Función robusta que lanza peticiones en paralelo hacia Adafruit IO sin bloquear procesos"""
     username = os.getenv("ADAFRUIT_IO_USERNAME")
     key = os.getenv("ADAFRUIT_IO_KEY")
     
     if not username or not key:
-        print("⚠️ Error: Faltan las variables de entorno en Railway. Configúralas en el panel de control.")
-        raise ValueError("Credenciales de Adafruit ausentes.")
+        print("⚠️ Error: Faltan las variables 'ADAFRUIT_IO_USERNAME' o 'ADAFRUIT_IO_KEY' en Railway.")
+        return
         
+    # Mapear tus variables con los feeds exactos de tu dashboard
+    datos_envio = [
+        ('feed-probabilidad', round(prob * 100, 2)), # Enviado como porcentaje numérico entero/flotante
+        ('feed-frecuencia', round(freq, 2)),
+        ('feed-amplitud', round(amp, 2)),
+        ('feed-latencia-red', lat_red),
+        ('feed-latencia-cnn', lat_cnn)
+    ]
+    
+    # Intentar agregar la distancia de forma segura si el ESP32 la envió bien
     try:
-        # Inicializar el cliente de Adafruit
-        aio = Client(username, key)
-        
-        # Envío de datos con filtros numéricos seguros
-        aio.send_data('feed-probabilidad', float(prob))
-        aio.send_data('feed-frecuencia', float(freq))
-        
-        try:
-            aio.send_data('feed-distancia', int(distancia_mm))
-        except:
-            print(f"⚠️ Advertencia: No se pudo enviar distancia válida ('{distancia_mm}')")
-        
-        print("🚀 Datos enviados a Adafruit IO correctamente.")
-        
-    except Exception as e:
-        print(f"❌ Error físico al conectar o enviar a Adafruit: {e}")
-        raise e
+        datos_envio.append(('feed-distancia', int(distancia_mm)))
+    except:
+        print(f"⚠️ Advertencia: Distancia '{distancia_mm}' no es un número válido.")
 
+    # Lanzar hilos concurrentes para enviar todo a la vez en menos de 1 segundo
+    hilos = []
+    for feed, valor in datos_envio:
+        h = threading.Thread(target=enviar_a_adafruit_rest, args=(username, key, feed, valor))
+        h.daemon = True
+        h.start()
+        hilos.append(h)
+        
+    for h in hilos:
+        h.join(timeout=4)
+    print("🚀 Procesamiento de envíos a Adafruit IO finalizado.")
 
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                  timestamp_file, ts_llegada, latencia_red_ms):
-    """Lógica pesada en segundo plano — no congela al ESP32"""
+    """Lógica pesada ejecutada en segundo plano por el Worker de FastAPI"""
     global contador_evento
     
     nombre_archivo = f'audio_{timestamp_file}.wav'
@@ -311,7 +335,7 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         # 1. Medir inicio de CNN
         ts_inicio_cnn = int(time.time() * 1000)
 
-        # 2. Conversión y amplificación
+        # 2. Conversión y amplificación de la señal del ESP32
         samples  = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32)
         samples *= FACTOR_AMP
         samples  = np.clip(samples, -32768, 32767).astype(np.int16)
@@ -319,27 +343,26 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         ruta_wav = os.path.join(OUTPUT_DIR, nombre_archivo)
 
-        # 3. Guardar .wav en disco temporal
+        # 3. Guardar .wav en disco temporal del contenedor
         with wave.open(ruta_wav, 'wb') as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)
             wav.setframerate(SAMPLE_RATE)
             wav.writeframes(samples.tobytes())
 
-        # 4. Análisis CNN utilizando el intérprete global
-        prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav, interpreter)
+        # 4. Análisis CNN utilizando el intérprete global (Se corrigió la llamada interna)
+        prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav)
 
-        # 5. Calcular latencias
+        # 5. Calcular latencias de cómputo
         ts_fin_cnn     = int(time.time() * 1000)
         latencia_cnn   = ts_fin_cnn - ts_inicio_cnn
         latencia_total = latencia_cnn + max(latencia_red_ms, 0)
         
-        # 6. Enviar a Adafruit IO llamando a la función externa limpiamente
-        print("🚀 Intentando enviar datos a Adafruit IO...")
+        # 6. Enviar datos estructurados a Adafruit IO
+        print("🚀 Enviando ráfaga de datos a Adafruit IO...")
         enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
-        print("✅ Envío a Adafruit completado con éxito.")
 
-        # 7. Reporte estético en consola en caso de ÉXITO (Sin Excel local)
+        # 7. Reporte estético final en la terminal de logs de Railway
         sep = "─" * 65
         print(f"\n{sep}")
         print(f"📊 EVENTO #{contador_evento} PROCESADO CON ÉXITO  [{hora_detectada}]")
@@ -353,8 +376,11 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         print(f"  ⏱  Latencia Red    : {latencia_red_ms} ms")
         print(f"  ⏱  Latencia CNN    : {latencia_cnn} ms")
         print(f"  ⏱  Latencia Total  : {latencia_total} ms")
-        print(f"  ☁️  Datos enviados a Adafruit IO")
         print(f"{sep}\n")
+
+        # Eliminar archivo de audio procesado para no agotar el almacenamiento efímero
+        if os.path.exists(ruta_wav):
+            os.remove(ruta_wav)
 
         contador_evento += 1
 
@@ -362,9 +388,8 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         print("💥 ERROR CRÍTICO EN LA TAREA EN SEGUNDO PLANO:")
         traceback.print_exc()
 
-  
 # ==============================================================================
-# --- 6+. ARRANQUE DEL SERVIDOR ---
+# --- 6. CONFIGURACIÓN Y ARRANQUE DEL SERVIDOR ---
 # ==============================================================================
 
 @asynccontextmanager
@@ -375,11 +400,9 @@ async def lifespan(app: FastAPI):
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"❌ Error crítico: No se encontró el archivo '{MODEL_PATH}' en la raíz del proyecto.")
         
-    # Inicializar el intérprete TFLite globalmente
     interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
     interpreter.allocate_tensors()
     
-    # Extraer las dimensiones requeridas de entrada y salida
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     
@@ -390,9 +413,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.post("/predict")
-async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks): # 👈 Agregamos 'async'
+async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks):
     try:
-        # ⚡️ Ahora leemos el cuerpo de forma asíncrona nativa, ultra rápido:
+        # Lectura asíncrona de los bytes crudos del flujo de red
         raw_audio = await request.body() 
         
         timestamp_llegada_railway = int(time.time() * 1000)
@@ -413,14 +436,13 @@ async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks
 
         print(f"📡 Audio recibido [{hora_detectada}] — Distancia: {distancia_mm}mm — Latencia red: {latencia_ms}ms")
 
-        # 🧵 Registramos la tarea pesada. FastAPI la procesará en segundo plano
+        # Delegar el análisis matemático a la cola de tareas en segundo plano
         background_tasks.add_task(
             procesar_audio_e_inferencia,
             raw_audio, distancia_mm, hora_detectada, timestamp_file, timestamp_llegada_railway, latencia_ms
         )
-        print("🧵 Tarea de procesamiento registrada con éxito en segundo plano.")
 
-        # 🚀 Esto se le responde al Arduino INMEDIATAMENTE, evitando el Timeout
+        # Responder al ESP32 inmediatamente de forma exitosa para liberar su conexión
         return {
             "status":   "recibido",
             "hora":     hora_detectada,
@@ -428,13 +450,10 @@ async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks
         }
 
     except Exception as e:
-        print(f"❌ Error recibiendo petición: {e}")
+        print(f"❌ Error recibiendo petición en endpoint: {e}")
         return {"status": "error", "message": str(e)}
 
-
-
-# ==============================================================================
-# --- 7 PUNTO DE ENTRADA ---
-# ==============================================================================
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=API_PORT, log_level="warning")
+    # Leer el puerto dinámico asignado obligatoriamente por Railway
+    puerto = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=puerto)
