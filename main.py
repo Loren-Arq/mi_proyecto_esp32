@@ -270,7 +270,7 @@ def analizar_mosquito(file_path, model=None):
 def enviar_a_adafruit_rest(username, key, feed_key, valor):
     """Envía un dato de forma directa e independiente usando la API REST nativa de Adafruit"""
     try:
-        url = f"https://adafruit.com{username}/feeds/{feed_key}/data"
+        url = f"https://adafruit.com/api/v2{username}/feeds/{feed_key}/data"
         headers = {
             "X-AIO-Key": key,
             "Content-Type": "application/json"
