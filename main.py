@@ -182,7 +182,7 @@ def procesar_audio_aedes(y, sr):
     return y_norm
 
 
-def analizar_mosquito(file_path, model):
+def analizar_mosquito(file_path, model=None):
     try:
         time.sleep(0.05)
 
@@ -348,7 +348,7 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
             wav.writeframes(samples.tobytes())
 
         # 4. Análisis CNN utilizando el intérprete global (Se corrigió la llamada interna)
-        prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav)
+        prob, freq, amp_db, armonicos = analizar_mosquito(ruta_wav,None)
 
         # 5. Calcular latencias de cómputo
         ts_fin_cnn     = int(time.time() * 1000)
