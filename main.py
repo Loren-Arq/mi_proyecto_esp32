@@ -239,7 +239,8 @@ def analizar_mosquito(file_path, model=None):
         input_data = np.expand_dims(img, axis=0).astype(np.float32)
 
         # Inyectamos el espectrograma en el índice de entrada de TFLite
-        interpreter.set_tensor(input_details['index'], input_data)
+        interpreter.set_tensor(input_details[0]['index'], input_data)
+        pred = interpreter.get_tensor(output_details[0]['index'])
         
         # Ejecutamos la predicción matemática compacta
         interpreter.invoke()
