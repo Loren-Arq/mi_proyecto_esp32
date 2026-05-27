@@ -9,3 +9,4 @@ scipy
 requests
 scikit-learn
 python-multipart
+PyGithub
