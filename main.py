@@ -51,7 +51,7 @@ FEED_DISTANCIA    = "feed-distancia"
 FEED_AMPLITUD     = "feed-amplitud"
 FEED_LATENCIA_RED = "feed-latencia-red"
 FEED_LATENCIA_CNN = "feed-latencia-cnn"
-FEED_UBICACION    = "sensor-ubicacion"
+FEED_UBICACION    = "feed-ubicacion"
 
 # 📍 COORDENADAS FIJAS DEL SENSOR
 LATITUD  = 14.58849
