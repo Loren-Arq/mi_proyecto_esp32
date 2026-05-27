@@ -14,9 +14,6 @@ import uvicorn
 from scipy.signal import butter, lfilter
 from contextlib import asynccontextmanager
 import traceback
-from Adafruit_IO import Client
-
-
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
