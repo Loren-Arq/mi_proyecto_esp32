@@ -17,6 +17,7 @@ import openpyxl
 import base64
 from github import Github
 from pathlib import Path
+from io import BytesIO
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
@@ -137,77 +138,81 @@ def enviar_todos_a_adafruit(prob, freq, distancia, amp_db, latencia_red, latenci
 
     print("🚀 Envíos a Adafruit IO finalizados.")
 
+ 
  # ==============================================================================
-# --- 2B. EXCEL LOCAL ---
+# --- 2B. EXCEL EN GITHUB ---
 # ==============================================================================
+import requests as req_github
+
+GITHUB_TOKEN = os.getenv("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")
+GITHUB_USER  = os.getenv("Loren-Arq")   # tu usuario de GitHub
+GITHUB_REPO  = os.getenv("mi_proyecto_esp32")   # nombre del repositorio
+GITHUB_PATH  = "datos/registros_aedes.xlsx"  # ruta dentro del repo
+
 EXCEL_HEADERS = [
     "Evento", "Fecha", "Hora", "Distancia (mm)",
     "Frecuencia (Hz)", "Amplitud (dB)", "Probabilidad (%)",
     "Armónicos", "Latencia Red (ms)", "Latencia CNN (ms)", "Alerta"
 ]
 
-# Ruta del Excel en la carpeta del proyecto
-BASE_DIR   = Path(__file__).parent
-EXCEL_PATH = BASE_DIR / "datos" / "registros_aedes.xlsx"
 
 def guardar_en_excel_local(fila: list):
-    """Carga el Excel local, agrega la fila y lo guarda."""
-    try:
-        # Crear carpeta 'datos/' si no existe
-        EXCEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+   
+    """Descarga el Excel de GitHub, agrega la fila y lo vuelve a subir."""
+    if not GITHUB_TOKEN or not GITHUB_USER or not GITHUB_REPO:
+        raise ValueError("❌ Faltan variables GitHub.")
 
-        # Cargar Excel existente o crear uno nuevo
-        if EXCEL_PATH.exists():
-            wb = openpyxl.load_workbook(EXCEL_PATH)
-            ws = wb.active
-            print("  📥 Excel existente cargado.")
+    try:
+        headers_gh = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+
+        # 1. Intentar descargar el archivo existente
+        response = req_github.get(url, headers=headers_gh)
+        sha = None
+
+        if response.status_code == 200:
+            data      = response.json()
+            sha       = data["sha"]  # necesario para actualizar
+            contenido = base64.b64decode(data["content"])
+            wb        = openpyxl.load_workbook(BytesIO(contenido))
+            ws        = wb.active
+            print("  📥 Excel descargado de GitHub.")
         else:
+            # Crear nuevo Excel si no existe
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Registros Aedes"
             ws.append(EXCEL_HEADERS)
             print("  📄 Excel nuevo creado.")
 
-        # Agregar fila de datos
+        # 2. Agregar la fila nueva
         ws.append(fila)
-        wb.save(EXCEL_PATH)
 
-        print(f"  ✅ Excel guardado en: {EXCEL_PATH}")
+        # 3. Convertir a bytes y subir a GitHub
+        buffer = BytesIO()
+        wb.save(buffer)
+        contenido_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    except Exception as e:
-        print(f"  ❌ Error al guardar Excel local: {e}")
-# ==============================================================================
-# --- 2C. ALARMA POR ADAFRUIT IO ---
-# ==============================================================================
-FEED_ALARMA = "feed-alarma"   # ← crea este feed en Adafruit IO
+        payload = {
+            "message": f"Evento #{fila[0]} registrado",
+            "content": contenido_b64
+        }
+        if sha:
+            payload["sha"] = sha  # si el archivo ya existía, sha es obligatorio
 
-def enviar_alarma_adafruit(prob, freq, distancia):
-    """Envía alerta al feed de alarma si probabilidad > 75%."""
-    if prob <= 0.75:
-        return
+        put_response = req_github.put(url, headers=headers_gh, json=payload)
 
-    mensaje = (
-        f"🚨 ALERTA Aedes detectado! "
-        f"Prob: {prob*100:.1f}% | "
-        f"Freq: {freq:.1f}Hz | "
-        f"Dist: {distancia}mm"
-    )
-
-    username = os.getenv("ADAFRUIT_IO_USERNAME")
-    aio_key  = os.getenv("ADAFRUIT_IO_KEY")
-
-    try:
-        url      = f"https://io.adafruit.com/api/v2/{username}/feeds/{FEED_ALARMA}/data"
-        headers  = {"X-AIO-Key": aio_key, "Content-Type": "application/json"}
-        payload  = {"value": mensaje}
-        response = requests.post(url, json=payload, headers=headers, timeout=5)
-
-        if response.status_code in [200, 201]:
-            print(f"  🚨 ALARMA enviada a Adafruit IO ✔")
+        if put_response.status_code in [200, 201]:
+            print(f"  ✅ Excel guardado en GitHub: {GITHUB_PATH}")
         else:
-            print(f"  ⚠️ Error alarma Adafruit: {response.status_code}")
+            print(f"  ❌ GitHub respondió {put_response.status_code}: {put_response.text}")
+
     except Exception as e:
-        print(f"  ❌ Error enviando alarma: {e}")
+        print(f"  ❌ Error al guardar Excel en GitHub: {e}")
+        traceback.print_exc()
 
 
 # ==============================================================================
