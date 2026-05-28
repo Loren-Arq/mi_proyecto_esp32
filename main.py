@@ -13,6 +13,10 @@ import uvicorn
 from scipy.signal import butter, lfilter
 from contextlib import asynccontextmanager
 import traceback
+import openpyxl
+import base64
+from github import Github
+from pathlib import Path
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
@@ -133,6 +137,78 @@ def enviar_todos_a_adafruit(prob, freq, distancia, amp_db, latencia_red, latenci
 
     print("🚀 Envíos a Adafruit IO finalizados.")
 
+ # ==============================================================================
+# --- 2B. EXCEL LOCAL ---
+# ==============================================================================
+EXCEL_HEADERS = [
+    "Evento", "Fecha", "Hora", "Distancia (mm)",
+    "Frecuencia (Hz)", "Amplitud (dB)", "Probabilidad (%)",
+    "Armónicos", "Latencia Red (ms)", "Latencia CNN (ms)", "Alerta"
+]
+
+# Ruta del Excel en la carpeta del proyecto
+BASE_DIR   = Path(__file__).parent
+EXCEL_PATH = BASE_DIR / "datos" / "registros_aedes.xlsx"
+
+def guardar_en_excel_local(fila: list):
+    """Carga el Excel local, agrega la fila y lo guarda."""
+    try:
+        # Crear carpeta 'datos/' si no existe
+        EXCEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # Cargar Excel existente o crear uno nuevo
+        if EXCEL_PATH.exists():
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            ws = wb.active
+            print("  📥 Excel existente cargado.")
+        else:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Registros Aedes"
+            ws.append(EXCEL_HEADERS)
+            print("  📄 Excel nuevo creado.")
+
+        # Agregar fila de datos
+        ws.append(fila)
+        wb.save(EXCEL_PATH)
+
+        print(f"  ✅ Excel guardado en: {EXCEL_PATH}")
+
+    except Exception as e:
+        print(f"  ❌ Error al guardar Excel local: {e}")
+# ==============================================================================
+# --- 2C. ALARMA POR ADAFRUIT IO ---
+# ==============================================================================
+FEED_ALARMA = "feed-alarma"   # ← crea este feed en Adafruit IO
+
+def enviar_alarma_adafruit(prob, freq, distancia):
+    """Envía alerta al feed de alarma si probabilidad > 75%."""
+    if prob <= 0.75:
+        return
+
+    mensaje = (
+        f"🚨 ALERTA Aedes detectado! "
+        f"Prob: {prob*100:.1f}% | "
+        f"Freq: {freq:.1f}Hz | "
+        f"Dist: {distancia}mm"
+    )
+
+    username = os.getenv("ADAFRUIT_IO_USERNAME")
+    aio_key  = os.getenv("ADAFRUIT_IO_KEY")
+
+    try:
+        url      = f"https://io.adafruit.com/api/v2/{username}/feeds/{FEED_ALARMA}/data"
+        headers  = {"X-AIO-Key": aio_key, "Content-Type": "application/json"}
+        payload  = {"value": mensaje}
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+
+        if response.status_code in [200, 201]:
+            print(f"  🚨 ALARMA enviada a Adafruit IO ✔")
+        else:
+            print(f"  ⚠️ Error alarma Adafruit: {response.status_code}")
+    except Exception as e:
+        print(f"  ❌ Error enviando alarma: {e}")
+
 
 # ==============================================================================
 # --- 3. FUNCIONES DE AUDIO Y PROCESAMIENTO CNN ---
@@ -233,7 +309,7 @@ def analizar_mosquito(file_path, model=None):
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                 timestamp_file, ts_llegada, latencia_red_ms):
     global contador_evento
-
+    ahora = datetime.now()
     nombre_archivo = f'audio_{timestamp_file}.wav'
     prob, freq, amp_db, armonicos = 0.0, 0.0, 0.0, "N/A"
     latencia_cnn = 0
@@ -266,12 +342,44 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         # Enviar a Adafruit
         print("🚀 Enviando datos a Adafruit IO...")
         enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
+        # 🚨 Alarma si probabilidad > 75%
+        enviar_alarma_adafruit(prob, freq, distancia_mm)
+
+        # 📊 Guardar en Excel en GitHub
+        alerta = "🚨 SÍ" if prob > 0.75 else "No"
+        fila = [
+            contador_evento,
+            ahora.strftime("%Y-%m-%d"),   # necesitas pasar `ahora` como parámetro
+            hora_detectada,
+            distancia_mm,
+            round(freq, 2),
+            round(amp_db, 2),
+            round(prob * 100, 2),
+            armonicos,
+            latencia_red_ms,
+            latencia_cnn,
+            alerta
+        ]
+        threading.Thread(
+            target=guardar_en_excel_local,
+            args=(fila,),
+            daemon=True
+        ).start()
 
         # Reporte en terminal
         sep = "─" * 65
         print(f"\n{sep}")
         print(f"📊 EVENTO #{contador_evento} PROCESADO  [{hora_detectada}]")
-        print(f"{sep}")
+        print(f"  ⏱  Latencia Total  : {latencia_total} ms")
+        print(f"{sep}\n")
+        
+        try:
+            guardar_en_excel_local(fila)
+            print(f"✅ Excel guardado correctamente en GitHub")
+        except Exception as e:
+            print(f"❌ Error guardando Excel en GitHub: {type(e).__name__}: {e}")
+            traceback.print_exc()
+
         print(f"  Archivo Registrado : {nombre_archivo}")
         print(f"  Distancia Objetivo : {distancia_mm} mm")
         print(f"  Frecuencia Alateo  : {freq:.2f} Hz")
@@ -325,17 +433,15 @@ async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks
 
         timestamp_llegada = int(time.time() * 1000)
         distancia_mm      = request.headers.get("X-Distance", "?")
-        ts_esp32_str      = request.headers.get("X-Timestamp-ESP32", "0")
+        latencia_audio    =request.headers.get("X-Latency-Audio-MS") 
 
         ahora          = datetime.now()
         hora_detectada = ahora.strftime("%H:%M:%S")
         timestamp_file = ahora.strftime("%Y%m%d_%H%M%S")
 
+        # Lee la latencia directamente desde el ESP32
         try:
-            ts_esp32    = int(ts_esp32_str)
-            latencia_ms = timestamp_llegada - ts_esp32
-            if latencia_ms < 0 or latencia_ms > 60000:
-                latencia_ms = -1
+            latencia_ms = int(latencia_audio)
         except:
             latencia_ms = -1
 
