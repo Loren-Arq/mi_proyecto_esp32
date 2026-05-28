@@ -183,11 +183,11 @@ def guardar_en_excel_local(fila: list):
         # 2. Construir la ruta completa para GitHub (Ej: datos/excel/reporte_2026-05-28.xlsx)
         ruta_github_archivo = f"{GITHUB_PATH_BASE}/{nombre_excel}"
        # 🚨 CAMBIA TU LÍNEA POR ESTA:
-        url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_PATH_BASE}"
+        url_archivo = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{ruta_github_archivo}"
 
 
         # 3. Intentar descargar el archivo existente del día de hoy
-        response = req_github.get(url, headers=headers_gh)
+        response = req_github.get(url_archivo, headers=headers_gh)
         sha = None
 
         if response.status_code == 200:
@@ -220,7 +220,7 @@ def guardar_en_excel_local(fila: list):
         if sha:
             payload["sha"] = sha  # Obligatorio si el archivo ya existía para actualizarlo
 
-        put_response = req_github.put(url, headers=headers_gh, json=payload)
+        put_response = req_github.put(url_archivo, headers=headers_gh, json=payload)
 
         if put_response.status_code in [200, 201]:
             print(f"  ✅ Excel guardado exitosamente en: {ruta_github_archivo}")
