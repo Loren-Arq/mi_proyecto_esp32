@@ -144,10 +144,11 @@ def enviar_todos_a_adafruit(prob, freq, distancia, amp_db, latencia_red, latenci
 # ==============================================================================
 import requests as req_github
 
-GITHUB_TOKEN = os.getenv("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")
-GITHUB_USER  = os.getenv("Loren-Arq")   # tu usuario de GitHub
-GITHUB_REPO  = os.getenv("mi_proyecto_esp32")   # nombre del repositorio
-GITHUB_PATH  = "datos/registros_aedes.xlsx"  # ruta dentro del repo
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_USER  = os.getenv("GITHUB_USER")   # tu usuario de GitHub
+GITHUB_REPO  = os.getenv("GITHUB_REPO")   # nombre del repositorio
+GITHUB_PATH  = "GITHUB_PATH"  # ruta dentro del repo
+
 print("DEBUG TOKEN:", GITHUB_TOKEN)
 print("DEBUG USER :", GITHUB_USER)
 print("DEBUG REPO :", GITHUB_REPO)
