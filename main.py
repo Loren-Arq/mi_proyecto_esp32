@@ -345,11 +345,11 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         # 🚨 Alarma si probabilidad > 75%
         enviar_alarma_adafruit(prob, freq, distancia_mm)
 
-        # 📊 Guardar en Excel en GitHub
+        # 📊 Preparar fila
         alerta = "🚨 SÍ" if prob > 0.75 else "No"
         fila = [
             contador_evento,
-            ahora.strftime("%Y-%m-%d"),   # necesitas pasar `ahora` como parámetro
+            ahora.strftime("%Y-%m-%d"),
             hora_detectada,
             distancia_mm,
             round(freq, 2),
@@ -360,26 +360,12 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
             latencia_cnn,
             alerta
         ]
-        threading.Thread(
-            target=guardar_en_excel_local,
-            args=(fila,),
-            daemon=True
-        ).start()
 
         # Reporte en terminal
         sep = "─" * 65
         print(f"\n{sep}")
         print(f"📊 EVENTO #{contador_evento} PROCESADO  [{hora_detectada}]")
-        print(f"  ⏱  Latencia Total  : {latencia_total} ms")
-        print(f"{sep}\n")
-        
-        try:
-            guardar_en_excel_local(fila)
-            print(f"✅ Excel guardado correctamente en GitHub")
-        except Exception as e:
-            print(f"❌ Error guardando Excel en GitHub: {type(e).__name__}: {e}")
-            traceback.print_exc()
-
+        print(f"{sep}")
         print(f"  Archivo Registrado : {nombre_archivo}")
         print(f"  Distancia Objetivo : {distancia_mm} mm")
         print(f"  Frecuencia Alateo  : {freq:.2f} Hz")
@@ -391,6 +377,14 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         print(f"  ⏱  Latencia Total  : {latencia_total} ms")
         print(f"{sep}\n")
 
+        # 📊 Guardar en Excel en GitHub
+        try:
+            guardar_en_excel_local(fila)
+            print(f"✅ Excel guardado correctamente en GitHub")
+        except Exception as e:
+            print(f"❌ Error guardando Excel en GitHub: {type(e).__name__}: {e}")
+            traceback.print_exc()
+
         # Limpiar archivo temporal
         if os.path.exists(ruta_wav):
             os.remove(ruta_wav)
@@ -400,7 +394,6 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
     except Exception as e:
         print("💥 ERROR CRÍTICO EN SEGUNDO PLANO:")
         traceback.print_exc()
-
 
 # ==============================================================================
 # --- 5. SERVIDOR FASTAPI ---
