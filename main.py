@@ -1,5 +1,6 @@
 import os
 import io
+from io import BytesIO
 import time
 import wave
 import librosa
@@ -17,7 +18,6 @@ import openpyxl
 import base64
 from github import Github
 from pathlib import Path
-from io import BytesIO
 
 # ==============================================================================
 # --- 1. CONFIGURACIÓN GLOBAL ---
@@ -138,7 +138,6 @@ def enviar_todos_a_adafruit(prob, freq, distancia, amp_db, latencia_red, latenci
 
     print("🚀 Envíos a Adafruit IO finalizados.")
 
- 
  # ==============================================================================
 # --- 2B. EXCEL EN GITHUB ---
 # ==============================================================================
@@ -147,12 +146,17 @@ import requests as req_github
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER  = os.getenv("GITHUB_USER")   # tu usuario de GitHub
 GITHUB_REPO  = os.getenv("GITHUB_REPO")   # nombre del repositorio
-GITHUB_PATH  = "datos/registros-aedes.xlsx"  # ruta dentro del repo
+GITHUB_PATH_BASE  = "datos/excel"  # ruta dentro del repo
 
 print("DEBUG TOKEN:", GITHUB_TOKEN)
 print("DEBUG USER :", GITHUB_USER)
 print("DEBUG REPO :", GITHUB_REPO)
-print("DEBUG PATH:", GITHUB_PATH)
+print("DEBUG PATH_BASE:", GITHUB_PATH_BASE) #Carpeta base donde se guardarán los archivos
+
+# 3. Validación interna para evitar que el programa falle a ciegas
+if not all([GITHUB_TOKEN, GITHUB_USER, GITHUB_REPO]):
+    raise ValueError("❌ Faltan variables GitHub en el entorno del servidor.")
+
 
 EXCEL_HEADERS = [
     "Evento", "Fecha", "Hora", "Distancia (mm)",
@@ -353,7 +357,7 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         print("🚀 Enviando datos a Adafruit IO...")
         enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
         # 🚨 Alarma si probabilidad > 75%
-        #enviar_alarma_adafruit(prob, freq, distancia_mm)
+        # enviar_alarma_adafruit(prob, freq, distancia_mm)
 
         # 📊 Preparar fila
         alerta = "🚨 SÍ" if prob > 0.75 else "No"
@@ -436,7 +440,7 @@ async def recibir_audio_wifi(request: Request, background_tasks: BackgroundTasks
 
         timestamp_llegada = int(time.time() * 1000)
         distancia_mm      = request.headers.get("X-Distance", "?")
-        latencia_audio    =request.headers.get("X-Latency-Audio-MS") 
+        latencia_audio    = request.headers.get("X-Latency-Audio-MS") 
 
         ahora          = datetime.now()
         hora_detectada = ahora.strftime("%H:%M:%S")
