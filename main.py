@@ -147,11 +147,12 @@ import requests as req_github
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER  = os.getenv("GITHUB_USER")   # tu usuario de GitHub
 GITHUB_REPO  = os.getenv("GITHUB_REPO")   # nombre del repositorio
-GITHUB_PATH  = "GITHUB_PATH"  # ruta dentro del repo
+GITHUB_PATH  = "datos/registros-aedes.xlsx"  # ruta dentro del repo
 
 print("DEBUG TOKEN:", GITHUB_TOKEN)
 print("DEBUG USER :", GITHUB_USER)
 print("DEBUG REPO :", GITHUB_REPO)
+print("DEBUG PATH:", GITHUB_PATH)
 
 EXCEL_HEADERS = [
     "Evento", "Fecha", "Hora", "Distancia (mm)",
