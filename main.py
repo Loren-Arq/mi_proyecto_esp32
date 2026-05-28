@@ -348,7 +348,7 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         print("🚀 Enviando datos a Adafruit IO...")
         enviar_todos_a_adafruit(prob, freq, distancia_mm, amp_db, latencia_red_ms, latencia_cnn)
         # 🚨 Alarma si probabilidad > 75%
-        enviar_alarma_adafruit(prob, freq, distancia_mm)
+        #enviar_alarma_adafruit(prob, freq, distancia_mm)
 
         # 📊 Preparar fila
         alerta = "🚨 SÍ" if prob > 0.75 else "No"
