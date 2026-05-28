@@ -166,8 +166,7 @@ EXCEL_HEADERS = [
 
 
 def guardar_en_excel_local(fila: list):
-   
-    """Descarga el Excel de GitHub, agrega la fila y lo vuelve a subir."""
+    """Descarga el Excel del día actual de GitHub, agrega la fila y lo vuelve a subir."""
     if not GITHUB_TOKEN or not GITHUB_USER or not GITHUB_REPO:
         raise ValueError("❌ Faltan variables GitHub.")
 
@@ -176,9 +175,16 @@ def guardar_en_excel_local(fila: list):
             "Authorization": f"token {GITHUB_TOKEN}",
             "Accept": "application/vnd.github.v3+json"
         }
-        url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+        
+        # 1. Generar el nombre del archivo dinámico usando la fecha de hoy
+        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+        nombre_excel = f"reporte_{fecha_hoy}.xlsx"
+        
+        # 2. Construir la ruta completa para GitHub (Ej: datos/excel/reporte_2026-05-28.xlsx)
+        ruta_github_archivo = f"{GITHUB_PATH_BASE}/{nombre_excel}"
+        url = f"https://github.com{GITHUB_USER}/{GITHUB_REPO}/contents/{ruta_github_archivo}"
 
-        # 1. Intentar descargar el archivo existente
+        # 3. Intentar descargar el archivo existente del día de hoy
         response = req_github.get(url, headers=headers_gh)
         sha = None
 
@@ -188,40 +194,41 @@ def guardar_en_excel_local(fila: list):
             contenido = base64.b64decode(data["content"])
             wb        = openpyxl.load_workbook(BytesIO(contenido))
             ws        = wb.active
-            print("  📥 Excel descargado de GitHub.")
+            print(f"  📥 Excel del día ({nombre_excel}) descargado de GitHub.")
         else:
-            # Crear nuevo Excel si no existe
+            # Crear nuevo Excel para el nuevo día si no existe
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Registros Aedes"
             ws.append(EXCEL_HEADERS)
-            print("  📄 Excel nuevo creado.")
+            print(f"  📄 Creando nuevo Excel para el día de hoy: {nombre_excel}")
 
-        # 2. Agregar la fila nueva
+        # 4. Agregar la fila nueva al reporte del día
         ws.append(fila)
 
-        # 3. Convertir a bytes y subir a GitHub
+        # 5. Convertir a bytes y subir a GitHub
         buffer = BytesIO()
         wb.save(buffer)
         contenido_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
         payload = {
-            "message": f"Evento #{fila[0]} registrado",
+            "message": f"Evento #{fila[0]} registrado en {nombre_excel}",
             "content": contenido_b64
         }
         if sha:
-            payload["sha"] = sha  # si el archivo ya existía, sha es obligatorio
+            payload["sha"] = sha  # Obligatorio si el archivo ya existía para actualizarlo
 
         put_response = req_github.put(url, headers=headers_gh, json=payload)
 
         if put_response.status_code in [200, 201]:
-            print(f"  ✅ Excel guardado en GitHub: {GITHUB_PATH}")
+            print(f"  ✅ Excel guardado exitosamente en: {ruta_github_archivo}")
         else:
             print(f"  ❌ GitHub respondió {put_response.status_code}: {put_response.text}")
 
     except Exception as e:
         print(f"  ❌ Error al guardar Excel en GitHub: {e}")
         traceback.print_exc()
+
 
 
 # ==============================================================================
