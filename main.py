@@ -230,7 +230,36 @@ def guardar_en_excel_local(fila: list):
     except Exception as e:
         print(f"  ❌ Error al guardar Excel en GitHub: {e}")
         traceback.print_exc()
+def subir_wav_a_github(ruta_wav: str, nombre_archivo: str):
+    """Sube el archivo .wav a GitHub en la carpeta audios/"""
+    if not all([GITHUB_TOKEN, GITHUB_USER, GITHUB_REPO]):
+        print("⚠️ Faltan variables GitHub para subir WAV.")
+        return
 
+    try:
+        with open(ruta_wav, "rb") as f:
+            contenido_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+        ruta_github = f"audios/{fecha_hoy}/{nombre_archivo}"
+        url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{ruta_github}"
+
+        headers_gh = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        payload = {
+            "message": f"Audio {nombre_archivo}",
+            "content": contenido_b64
+        }
+
+        response = req_github.put(url, headers=headers_gh, json=payload)
+        if response.status_code in [200, 201]:
+            print(f"  🎵 WAV subido a GitHub: {ruta_github}")
+        else:
+            print(f"  ❌ Error subiendo WAV: {response.status_code}")
+    except Exception as e:
+        print(f"  ❌ Error subiendo WAV a GitHub: {e}")
 
 
 # ==============================================================================
@@ -407,6 +436,12 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         except Exception as e:
             print(f"❌ Error guardando Excel en GitHub: {type(e).__name__}: {e}")
             traceback.print_exc()
+            # 🎵 Subir WAV a GitHub
+        subir_wav_a_github(ruta_wav, nombre_archivo)
+
+        # Limpiar archivo temporal
+        if os.path.exists(ruta_wav):
+            os.remove(ruta_wav)
 
         # Limpiar archivo temporal
         if os.path.exists(ruta_wav):
