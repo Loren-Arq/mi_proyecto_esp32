@@ -178,7 +178,9 @@ def guardar_en_excel_local(fila: list):
         }
         
         # 1. Generar el nombre del archivo dinámico usando la fecha de hoy
-        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+        zona_guatemala = pytz.timezone("America/Guatemala")
+        fecha_hoy = datetime.now(zona_guatemala).strftime("%Y-%m-%d")
+        
         nombre_excel = f"reporte_{fecha_hoy}.xlsx"
         
         # 2. Construir la ruta completa para GitHub (Ej: datos/excel/reporte_2026-05-28.xlsx)
@@ -362,8 +364,11 @@ def analizar_mosquito(file_path, model=None):
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                 timestamp_file, ts_llegada, latencia_red_ms):
     global contador_evento
+    # ✅ Esta hora está en Guatemala
     zona_guatemala = pytz.timezone("America/Guatemala")
-    ahora = datetime.now(zona_guatemala)
+    ahora          = datetime.now(zona_guatemala)
+    hora_detectada = ahora.strftime("%H:%M:%S")
+    timestamp_file = ahora.strftime("%Y%m%d_%H%M%S")
 
     nombre_archivo = f'audio_{timestamp_file}.wav'
     prob, freq, amp_db, armonicos = 0.0, 0.0, 0.0, "N/A"
