@@ -2,6 +2,7 @@ import os
 import io
 from io import BytesIO
 import time
+import pytz
 import wave
 import librosa
 import requests
@@ -361,7 +362,9 @@ def analizar_mosquito(file_path, model=None):
 def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
                                 timestamp_file, ts_llegada, latencia_red_ms):
     global contador_evento
-    ahora = datetime.now()
+    zona_guatemala = pytz.timezone("America/Guatemala")
+    ahora = datetime.now(zona_guatemala)
+
     nombre_archivo = f'audio_{timestamp_file}.wav'
     prob, freq, amp_db, armonicos = 0.0, 0.0, 0.0, "N/A"
     latencia_cnn = 0
