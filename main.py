@@ -348,8 +348,27 @@ def analizar_mosquito(file_path, model=None):
         probabilidad = float(pred.flatten()[0]) if isinstance(pred, np.ndarray) else float(pred)
 
         # Filtro de frecuencia del aleteo del Aedes
-        if freq_dominante < 380.0 or freq_dominante > 620.0:
+        TOLERANCIA_ARM = 60.0
+        if freq_dominante < 340.0 or freq_dominante > 660.0:
             probabilidad = 0.0
+        else:
+            # Regla 2: verificar que al menos 2 de 3 armónicos estén presentes
+            armonicos_validos = 0
+            for i in [2, 3, 4]:
+                target = freq_dominante * i
+            if target < (sr / 2):
+                mask_arm = (f >= (target - TOLERANCIA_ARM)) & (f <= (target + TOLERANCIA_ARM))
+                if np.any(mask_arm) and np.max(S_mean[mask_arm]) > np.mean(S_mean) * 1.5:
+                    armonicos_validos += 1
+
+            if armonicos_validos >= 2:
+                # Armónicos confirman → subir probabilidad mínima al 70%
+                probabilidad = max(probabilidad, 0.70)
+                print(f"  ✅ Armónicos validados ({armonicos_validos}/3) → prob ajustada: {probabilidad:.2%}")
+            else:
+                # CNN baja Y armónicos débiles → no es confiable
+                if probabilidad < 0.30:
+                    probabilidad = 0.0
 
         return probabilidad, freq_dominante, amplitud_db, str_armonicos
 
@@ -406,7 +425,7 @@ def procesar_audio_e_inferencia(raw_audio, distancia_mm, hora_detectada,
         # enviar_alarma_adafruit(prob, freq, distancia_mm)
 
         # 📊 Preparar fila
-        alerta = "🚨 SÍ" if prob > 0.75 else "No"
+        alerta = "🚨 SÍ" if prob > 0.65 else "No"
         fila = [
             contador_evento,
             ahora.strftime("%Y-%m-%d"),
