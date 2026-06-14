@@ -43,7 +43,7 @@ contador_evento = 1
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER  = os.getenv("GITHUB_USER")   
 GITHUB_REPO  = os.getenv("GITHUB_REPO")   
-GITHUB_PATH_BASE  = "datos/excel"  
+GITHUB_PATH_BASE  = os.getenv("GITHUB_PATH_BASE", "datos/excel")
 
 print("DEBUG TOKEN:", GITHUB_TOKEN)
 print("DEBUG USER :", GITHUB_USER)
@@ -104,8 +104,9 @@ def guardar_en_excel_local(fila: list):
 
         put_response = req_github.put(url_archivo, headers=headers_gh, json=payload, timeout=5)
 
-        if put_response.status_code in:
+        if put_response.status_code in[200, 201]:  # <--- CORREGIDO
             print(f"  ✔ Excel actualizado con éxito en GitHub: {nombre_excel}")
+
         else:
             print(f"  ⚠️ Error subiendo Excel a GitHub: {put_response.status_code} — {put_response.text}")
     except Exception as e:
