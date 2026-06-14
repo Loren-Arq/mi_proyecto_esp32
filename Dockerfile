@@ -20,4 +20,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # 4. ARRANCAR EL SERVIDOR
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "streamlit run app.py --server.address 0.0.0.0 --server.port ${PORT:-8501}"]
