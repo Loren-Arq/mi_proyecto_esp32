@@ -2,385 +2,323 @@ import streamlit as st
 import pandas as pd
 import requests
 import io
-import time
-import plotly.graph_objects as go
+import re
 import plotly.express as px
+import plotly.graph_objects as go
+import folium
+from streamlit_folium import st_folium
 from datetime import datetime
 
-# ─────────────────────────────────────────────
-# CONFIGURACIÓN — cambia solo estas dos líneas
-# ─────────────────────────────────────────────
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/Loren-Arq/mi_proyecto_esp32/main/datos/excel/reporte_2026-06-14.xlsx"
-REFRESH_SECONDS = 30  # actualiza cada 30 segundos
-# ─────────────────────────────────────────────
+# ==============================================================================
+# --- CONFIGURACIÓN DE LA PÁGINA ---
+# ==============================================================================
+st.set_page_config(page_title="Dashboard Monitor Aedes", layout="wide", page_icon="🦟")
 
-st.set_page_config(
-    page_title="Monitor Aedes aegypti",
-    page_icon="🦟",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# ── Estilos ──────────────────────────────────
 st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+    <style>
+    .main-title { font-size:38px !important; font-weight: bold; color: #2E4053; margin-bottom: 5px; }
+    .subtitle { font-size:18px !important; color: #5D6D7E; margin-bottom: 25px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+st.markdown('<p class="main-title">📊 Sistema de Monitoreo Biológico - Aedes aegypti</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Análisis de datos acústicos e inferencia de IA en tiempo real</p>', unsafe_allow_html=True)
 
-    .main { background-color: #0f1117; }
+# ==============================================================================
+# --- CONFIGURACIÓN GITHUB ---
+# ==============================================================================
+GITHUB_USER   = "Loren-Arq"
+GITHUB_REPO   = "mi_proyecto_esp32"
+GITHUB_BRANCH = "main"
+GITHUB_FOLDER = "datos/excel"   # carpeta dentro del repo
 
-    /* Header */
-    .header-box {
-        background: linear-gradient(135deg, #1a1f2e 0%, #0d1b2a 100%);
-        border: 1px solid #1e3a5f;
-        border-radius: 12px;
-        padding: 24px 32px;
-        margin-bottom: 24px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-    }
-    .header-title {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #e8f4fd;
-        margin: 0;
-        letter-spacing: -0.5px;
-    }
-    .header-sub {
-        font-size: 0.85rem;
-        color: #5a8fa8;
-        margin: 4px 0 0 0;
-        font-family: 'JetBrains Mono', monospace;
-    }
+# ==============================================================================
+# --- CARGA DESDE GITHUB ---
+# ==============================================================================
+# ==============================================================================
+# --- CONFIGURACIÓN GITHUB ---
+# ==============================================================================
+GITHUB_USER   = "Loren-Arq"
+GITHUB_REPO   = "mi_proyecto_esp32"
+GITHUB_BRANCH = "main"
+GITHUB_FOLDER = "datos/excel"   # Carpeta dentro del repo
 
-    /* KPI cards */
-    .kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-    .kpi-card {
-        background: #1a1f2e;
-        border: 1px solid #1e3a5f;
-        border-radius: 10px;
-        padding: 20px 24px;
-        position: relative;
-        overflow: hidden;
-    }
-    .kpi-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 3px;
-        background: var(--accent);
-    }
-    .kpi-label {
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #5a8fa8;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 8px;
-    }
-    .kpi-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #e8f4fd;
-        font-family: 'JetBrains Mono', monospace;
-        line-height: 1;
-    }
-    .kpi-unit {
-        font-size: 0.9rem;
-        color: #5a8fa8;
-        margin-left: 4px;
-    }
-    .kpi-delta {
-        font-size: 0.78rem;
-        margin-top: 6px;
-        color: #5a8fa8;
-    }
-    .kpi-delta.positive { color: #4caf82; }
-    .kpi-delta.warning  { color: #e8a84c; }
-    .kpi-delta.danger   { color: #e85c5c; }
-
-    /* Alert badge */
-    .badge-aedes {
-        display: inline-block;
-        background: #3d1a1a;
-        border: 1px solid #e85c5c;
-        color: #e85c5c;
-        border-radius: 20px;
-        padding: 2px 10px;
-        font-size: 0.72rem;
-        font-weight: 600;
-    }
-    .badge-ok {
-        display: inline-block;
-        background: #1a3d2b;
-        border: 1px solid #4caf82;
-        color: #4caf82;
-        border-radius: 20px;
-        padding: 2px 10px;
-        font-size: 0.72rem;
-        font-weight: 600;
-    }
-
-    /* Section title */
-    .section-title {
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #5a8fa8;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-        margin: 0 0 12px 0;
-        padding-bottom: 8px;
-        border-bottom: 1px solid #1e3a5f;
-    }
-
-    /* Last update */
-    .last-update {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.72rem;
-        color: #3d5a6e;
-        text-align: right;
-        margin-bottom: 8px;
-    }
-
-    /* Hide streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stDeployButton {display: none;}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ── Carga de datos ────────────────────────────
-@st.cache_data(ttl=REFRESH_SECONDS)
-def cargar_datos(url: str) -> pd.DataFrame:
+# ==============================================================================
+# --- CARGA DESDE GITHUB (CORREGIDA) ---
+# ==============================================================================
+@st.cache_data(ttl=60)  # Refresca cada 60 segundos
+def cargar_datos_reportes():
+    # SOLUCIÓN 1: URL de API oficial corregida
+    api_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{GITHUB_FOLDER}?ref={GITHUB_BRANCH}"
+    
     try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        df = pd.read_excel(io.BytesIO(r.content), engine="openpyxl")
-        # Normalizar nombres de columnas
-        df.columns = df.columns.str.strip()
-        # Crear columna datetime combinada
-        if "Fecha" in df.columns and "Hora" in df.columns:
-            df["Datetime"] = pd.to_datetime(
-                df["Fecha"].astype(str) + " " + df["Hora"].astype(str),
-                errors="coerce"
-            )
-        return df
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(api_url, headers=headers, timeout=10)
     except Exception as e:
-        return None, str(e)
+        st.error(f"❌ Error de red al conectar con GitHub: {e}")
+        return pd.DataFrame()
+
+    if resp.status_code != 200:
+        st.error(f"❌ GitHub respondió con código: {resp.status_code}")
+        st.info("Verifica que el repositorio sea PÚBLICO y que la ruta exista exactamente igual.")
+        st.code(resp.text[:300], language="text")
+        return pd.DataFrame()
+
+    try:
+        todos = resp.json()
+    except Exception as e:
+        st.error(f"❌ Error al procesar la respuesta (No es un JSON válido): {e}")
+        return pd.DataFrame()
+
+    if not isinstance(todos, list):
+        st.warning("⚠️ La API de GitHub no devolvió una lista de archivos válida.")
+        return pd.DataFrame()
+
+    # SOLUCIÓN 3: Expresión regular flexible para aceptar 'reporte_...', 'Reporte_Aedes_...', etc.
+    patron = re.compile(r".*reporte.*(\d{4}-\d{2}-\d{2})\.xlsx", re.IGNORECASE)
+    
+    archivos = [f for f in todos if isinstance(f, dict) and "name" in f and patron.match(f["name"])]
+
+    if not archivos:
+        return pd.DataFrame()
+
+    lista_dfs = []
+    for f in archivos:
+        try:
+            # SOLUCIÓN 2: Usar la URL de descarga directa provista por GitHub
+            raw_url = f["download_url"]
+            r = requests.get(raw_url, headers=headers, timeout=10)
+            r.raise_for_status()
+
+            df = pd.read_excel(io.BytesIO(r.content))
+            
+            df.columns = [str(c).strip() for c in df.columns]
+
+            # Extraer la fecha dinámicamente con el nuevo patrón
+            match = patron.search(f["name"])
+            fecha_archivo = datetime.strptime(match.group(1), "%Y-%m-%d").date() if match else datetime.now().date()
+
+            df['Fecha_Registro'] = pd.to_datetime(fecha_archivo)
+            df['Mes'] = df['Fecha_Registro'].dt.strftime('%Y-%m ( %B )')
+
+            col_prob = [c for c in df.columns if 'Probabilidad' in c or 'Prob' in c]
+            col_frec = [c for c in df.columns if 'Frecuencia' in c or 'Frec' in c]
+            col_amp = [c for c in df.columns if 'Amplitud' in c or 'Amp' in c]
+
+            frec_name = col_frec[0] if col_frec else 'Frecuencia (Hz)'
+            amp_name = col_amp[0] if col_amp else 'Amplitud (dB)'
+            
+            df['Frec_Num'] = pd.to_numeric(df[frec_name], errors='coerce').fillna(0)
+            df['Amp_Num']  = pd.to_numeric(df[amp_name], errors='coerce').fillna(0)
+            
+            if col_prob:
+                df['Prob_Num'] = pd.to_numeric(df[col_prob[0]], errors='coerce').fillna(0)
+                if df['Prob_Num'].max() > 1.0:
+                    df['Prob_Num'] = df['Prob_Num'] / 100.0
+            else:
+                df['Prob_Num'] = 0.0
+
+            lista_dfs.append(df)
+        except Exception as e:
+            st.warning(f"⚠️ Error leyendo {f['name']}: {e}")
+            continue
+
+    if lista_dfs:
+        return pd.concat(lista_dfs, ignore_index=True)
+    return pd.DataFrame()
 
 
-# ── Header ───────────────────────────────────
-st.markdown("""
-<div class="header-box">
-    <span style="font-size:2.2rem">🦟</span>
-    <div>
-        <p class="header-title">Sistema de Monitoreo Biológico — <em>Aedes aegypti</em></p>
-        <p class="header-sub">Detección acústica · CNN en tiempo real · ESP32-S3 + INMP441</p>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
-# ── Auto-refresh ─────────────────────────────
-placeholder_update = st.empty()
-df = cargar_datos(GITHUB_RAW_URL)
 
-if df is None or (isinstance(df, tuple)):
-    st.error("⚠️ No se pudo cargar el archivo Excel desde GitHub. Verifica la URL en GITHUB_RAW_URL.")
-    st.stop()
+# Botón manual de refresco + carga automática
+# ==============================================================================
+# --- SISTEMA DE REFRESCO AUTOMÁTICO REAL ---
+# ==============================================================================
 
-ahora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-placeholder_update.markdown(f'<p class="last-update">Última actualización: {ahora} · refresca cada {REFRESH_SECONDS}s</p>', unsafe_allow_html=True)
+# Definimos un fragmento que fuerza la recarga del script completo cada 60 segundos
+@st.fragment(run_every=60)
+def despachador_de_tiempo():
+    # Este componente invisible obliga a la pantalla a actualizarse sola
+    pass
 
-# ── Métricas ──────────────────────────────────
-total_eventos   = len(df)
-col_alerta      = "Alerta" if "Alerta" in df.columns else None
-positivos       = int(df[col_alerta].astype(str).str.upper().str.contains("AEDES|SÍ|SI|YES|1|TRUE").sum()) if col_alerta else 0
-pct_positivos   = round(positivos / total_eventos * 100, 1) if total_eventos > 0 else 0
-freq_prom       = round(df["Frecuencia (Hz)"].mean(), 1) if "Frecuencia (Hz)" in df.columns else 0
-amp_prom        = round(df["Amplitud (dB)"].mean(), 1) if "Amplitud (dB)" in df.columns else 0
-prob_prom       = round(df["Probabilidad (%)"].mean(), 1) if "Probabilidad (%)" in df.columns else 0
-dist_prom       = round(df["Distancia (mm)"].mean(), 1) if "Distancia (mm)" in df.columns else 0
+# Ejecutar el temporizador en segundo plano
+despachador_de_tiempo()
 
-delta_class_pos = "danger" if pct_positivos > 50 else ("warning" if pct_positivos > 25 else "positive")
-
-st.markdown(f"""
-<div class="kpi-grid">
-  <div class="kpi-card" style="--accent:#4c8fe8;">
-    <p class="kpi-label">📡 Total Eventos</p>
-    <p class="kpi-value">{total_eventos}</p>
-    <p class="kpi-delta">registros en Excel</p>
-  </div>
-  <div class="kpi-card" style="--accent:#e85c5c;">
-    <p class="kpi-label">🦟 Positivos Aedes</p>
-    <p class="kpi-value">{positivos}</p>
-    <p class="kpi-delta {delta_class_pos}">▲ {pct_positivos}% del total</p>
-  </div>
-  <div class="kpi-card" style="--accent:#4caf82;">
-    <p class="kpi-label">🎵 Frecuencia Promedio</p>
-    <p class="kpi-value">{freq_prom}<span class="kpi-unit">Hz</span></p>
-    <p class="kpi-delta">rango objetivo 380–620 Hz</p>
-  </div>
-  <div class="kpi-card" style="--accent:#e8a84c;">
-    <p class="kpi-label">🔊 Amplitud Promedio</p>
-    <p class="kpi-value">{amp_prom}<span class="kpi-unit">dB</span></p>
-    <p class="kpi-delta">Probabilidad CNN: {prob_prom}%</p>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ── Gráficas ──────────────────────────────────
-PLOTLY_THEME = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(15,17,23,0.6)",
-    font=dict(family="Inter, sans-serif", color="#7a9ab8", size=12),
-    margin=dict(l=10, r=10, t=36, b=10),
-    xaxis=dict(gridcolor="#1e3a5f", linecolor="#1e3a5f", zeroline=False),
-    yaxis=dict(gridcolor="#1e3a5f", linecolor="#1e3a5f", zeroline=False),
-)
-
-col1, col2 = st.columns(2)
-
-# ── Gráfica 1: Probabilidad CNN en el tiempo
-with col1:
-    st.markdown('<p class="section-title">📈 Probabilidad CNN por Evento</p>', unsafe_allow_html=True)
-    if "Probabilidad (%)" in df.columns:
-        x_axis = df["Datetime"] if "Datetime" in df.columns else df["Evento"]
-        colores = ["#e85c5c" if v >= 75 else "#4c8fe8" for v in df["Probabilidad (%)"]]
-        fig1 = go.Figure()
-        fig1.add_trace(go.Scatter(
-            x=x_axis, y=df["Probabilidad (%)"],
-            mode="lines+markers",
-            line=dict(color="#4c8fe8", width=2),
-            marker=dict(color=colores, size=8, line=dict(color="#0f1117", width=1)),
-            fill="tozeroy",
-            fillcolor="rgba(76,143,232,0.08)",
-            name="Probabilidad CNN",
-            hovertemplate="<b>%{y:.1f}%</b><extra></extra>"
-        ))
-        fig1.add_hline(y=75, line_dash="dash", line_color="#e85c5c",
-                       annotation_text="Umbral 75%", annotation_font_color="#e85c5c")
-        fig1.update_layout(**PLOTLY_THEME, height=280,
-                           yaxis=dict(**PLOTLY_THEME["yaxis"], range=[0, 105]))
-        st.plotly_chart(fig1, use_container_width=True)
-
-# ── Gráfica 2: Frecuencia por evento
-with col2:
-    st.markdown('<p class="section-title">🎵 Frecuencia Fundamental por Evento</p>', unsafe_allow_html=True)
-    if "Frecuencia (Hz)" in df.columns:
-        x_axis = df["Datetime"] if "Datetime" in df.columns else df["Evento"]
-        colores_freq = ["#4caf82" if 380 <= v <= 620 else "#e8a84c" for v in df["Frecuencia (Hz)"]]
-        fig2 = go.Figure()
-        fig2.add_hrect(y0=380, y1=620, fillcolor="rgba(76,175,130,0.07)",
-                       line_width=0, annotation_text="Zona Aedes (380–620 Hz)",
-                       annotation_font_color="#4caf82", annotation_font_size=10)
-        fig2.add_trace(go.Scatter(
-            x=x_axis, y=df["Frecuencia (Hz)"],
-            mode="lines+markers",
-            line=dict(color="#4caf82", width=2),
-            marker=dict(color=colores_freq, size=8, line=dict(color="#0f1117", width=1)),
-            name="Frecuencia Hz",
-            hovertemplate="<b>%{y:.0f} Hz</b><extra></extra>"
-        ))
-        fig2.update_layout(**PLOTLY_THEME, height=280)
-        st.plotly_chart(fig2, use_container_width=True)
-
-col3, col4 = st.columns(2)
-
-# ── Gráfica 3: Distancia sensor
-with col3:
-    st.markdown('<p class="section-title">📏 Distancia Sensor VL53L0X</p>', unsafe_allow_html=True)
-    if "Distancia (mm)" in df.columns:
-        x_axis = df["Datetime"] if "Datetime" in df.columns else df["Evento"]
-        fig3 = go.Figure()
-        fig3.add_trace(go.Bar(
-            x=x_axis, y=df["Distancia (mm)"],
-            marker_color="#7c5ce8",
-            marker_line_color="#0f1117",
-            marker_line_width=1,
-            name="Distancia mm",
-            hovertemplate="<b>%{y:.0f} mm</b><extra></extra>"
-        ))
-        fig3.update_layout(**PLOTLY_THEME, height=260)
-        st.plotly_chart(fig3, use_container_width=True)
-
-# ── Gráfica 4: Distribución alertas (pie)
-with col4:
-    st.markdown('<p class="section-title">🎯 Distribución de Alertas</p>', unsafe_allow_html=True)
-    if col_alerta:
-        counts = df[col_alerta].value_counts()
-        fig4 = go.Figure(go.Pie(
-            labels=counts.index,
-            values=counts.values,
-            hole=0.55,
-            marker=dict(colors=["#e85c5c", "#4c8fe8", "#4caf82"],
-                        line=dict(color="#0f1117", width=2)),
-            textfont=dict(color="#e8f4fd"),
-            hovertemplate="<b>%{label}</b>: %{value} eventos<extra></extra>"
-        ))
-        fig4.update_layout(**PLOTLY_THEME, height=260,
-                           legend=dict(font=dict(color="#7a9ab8")),
-                           annotations=[dict(text=f"<b>{total_eventos}</b><br>eventos",
-                                            x=0.5, y=0.5, font_size=14,
-                                            font_color="#e8f4fd", showarrow=False)])
-        st.plotly_chart(fig4, use_container_width=True)
-
-# ── Gráfica 5: Latencia CNN vs Red
-st.markdown('<p class="section-title">⚡ Latencia del Sistema (CNN vs Red)</p>', unsafe_allow_html=True)
-if "Latencia CNN (ms)" in df.columns and "Latencia Red (ms)" in df.columns:
-    x_axis = df["Datetime"] if "Datetime" in df.columns else df["Evento"]
-    fig5 = go.Figure()
-    fig5.add_trace(go.Scatter(
-        x=x_axis, y=df["Latencia CNN (ms)"],
-        name="CNN", mode="lines+markers",
-        line=dict(color="#e8a84c", width=2),
-        marker=dict(size=6),
-        hovertemplate="CNN: <b>%{y:.0f} ms</b><extra></extra>"
-    ))
-    fig5.add_trace(go.Scatter(
-        x=x_axis, y=df["Latencia Red (ms)"],
-        name="Red", mode="lines+markers",
-        line=dict(color="#7c5ce8", width=2),
-        marker=dict(size=6),
-        hovertemplate="Red: <b>%{y:.0f} ms</b><extra></extra>"
-    ))
-    fig5.update_layout(**PLOTLY_THEME, height=220,
-                       legend=dict(orientation="h", y=1.1, font=dict(color="#7a9ab8")))
-    st.plotly_chart(fig5, use_container_width=True)
-
-# ── Tabla últimos eventos ─────────────────────
-st.markdown('<p class="section-title">📋 Últimos 10 Eventos</p>', unsafe_allow_html=True)
-
-df_show = df.tail(10).copy()
-if "Datetime" in df_show.columns:
-    df_show = df_show.drop(columns=["Datetime"], errors="ignore")
-
-def colorear_alerta(val):
-    val_str = str(val).upper()
-    if any(k in val_str for k in ["AEDES", "SÍ", "SI", "YES", "1", "TRUE"]):
-        return "background-color:#3d1a1a; color:#e85c5c; font-weight:600"
-    return "background-color:#1a3d2b; color:#4caf82; font-weight:600"
-
-styled = df_show.style.applymap(colorear_alerta, subset=["Alerta"]) if "Alerta" in df_show.columns else df_show.style
-st.dataframe(styled, use_container_width=True, height=300)
-
-# ── Auto-refresh real ─────────────────────────
-st.markdown("---")
-col_r1, col_r2 = st.columns([3, 1])
-with col_r1:
-    st.markdown(f'<p style="color:#3d5a6e; font-size:0.75rem; font-family: monospace;">🔄 Datos desde GitHub · Excel actualizado por Railway · refresh cada {REFRESH_SECONDS}s</p>', unsafe_allow_html=True)
-with col_r2:
-    if st.button("🔄 Actualizar ahora"):
+# Botón manual de refresco mejorado
+col_refresh, _ = st.columns([3, 7])
+with col_refresh:
+    if st.button("🔄 Forzar actualización manual"):
         st.cache_data.clear()
         st.rerun()
 
-# Auto-rerun silencioso
-time.sleep(REFRESH_SECONDS)
-st.rerun()
+# Carga de datos global
+df_global = cargar_datos_reportes()
+
+
+if df_global.empty:
+    st.warning("⚠️ No se encontraron archivos 'Reporte_Aedes_*.xlsx' en el repositorio GitHub.")
+    st.caption(f"Buscando en: github.com/{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_FOLDER}")
+    st.stop()
+
+# ==============================================================================
+# --- FILTROS LATERALES ---
+# ==============================================================================
+st.sidebar.header("🎛️ Filtros Globales")
+lista_meses = sorted(df_global['Mes'].unique())
+mes_seleccionado = st.sidebar.selectbox("Seleccionar Mes de Análisis:", ["Todos los meses"] + lista_meses)
+
+if mes_seleccionado != "Todos los meses":
+    df_filtrado = df_global[df_global['Mes'] == mes_seleccionado]
+else:
+    df_filtrado = df_global.copy()
+
+# Mostrar hora de última actualización
+st.sidebar.markdown("---")
+st.sidebar.caption(f"🕒 Última carga: {datetime.now().strftime('%H:%M:%S')}")
+st.sidebar.caption("Los datos se refrescan automáticamente cada 60 segundos.")
+
+# ==============================================================================
+# --- FILA 1: KPIs ---
+# ==============================================================================
+total_detecciones = len(df_filtrado)
+positivos_aedes   = len(df_filtrado[df_filtrado['Prob_Num'] > 0.5])
+freq_promedio     = df_filtrado['Frec_Num'].mean() if total_detecciones > 0 else 0
+amp_promedio      = df_filtrado['Amp_Num'].mean()  if total_detecciones > 0 else 0
+
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+with kpi1:
+    st.metric(label="🎙️ Total Eventos Capturados", value=f"{total_detecciones}")
+with kpi2:
+    pct = (positivos_aedes / total_detecciones) if total_detecciones > 0 else 0
+    st.metric(label="🦟 Positivos Aedes (IA > 50%)", value=f"{positivos_aedes}",
+              delta=f"{pct:.1%} del total", delta_color="inverse")
+with kpi3:
+    st.metric(label="🎼 Frecuencia Fundamental Promedio", value=f"{freq_promedio:.1f} Hz")
+with kpi4:
+    st.metric(label="🔊 Presión Sonora Promedio", value=f"{amp_promedio:.1f} dB")
+
+st.markdown("---")
+
+# ==============================================================================
+# --- FILA 2: MAPA + TENDENCIA ---
+# ==============================================================================
+col_izq, col_der = st.columns([1, 1])
+
+with col_izq:
+    st.subheader("📍 Ubicación Geográfica del Sensor")
+    lat_sensor = 14.58849
+    lon_sensor = -90.5533
+
+    m = folium.Map(location=[lat_sensor, lon_sensor], zoom_start=17, tiles="OpenStreetMap")
+
+    popup_text = f"""
+    <div style='font-family: Arial, sans-serif; width: 180px;'>
+        <h4 style='margin:0 0 5px 0; color:#C0392B;'>Dispositivo IoT #1</h4>
+        <b>Estado:</b> Activo Escuchando<br>
+        <b>Muestras:</b> {total_detecciones}<br>
+        <b>Positivos:</b> {positivos_aedes}<br>
+        <small style='color:gray;'>Lat: {lat_sensor}<br>Lon: {lon_sensor}</small>
+    </div>
+    """
+    folium.Marker(
+        [lat_sensor, lon_sensor],
+        popup=folium.Popup(popup_text, max_width=250),
+        tooltip="Dispositivo de Monitoreo Biológico",
+        icon=folium.Icon(color="red", icon="microchip", prefix="fa")
+    ).add_to(m)
+
+    st_folium(m, width="100%", height=380, returned_objects=[])
+
+with col_der:
+    st.subheader("📈 Histórico Evolutivo / Tendencia Mensual")
+
+    df_mensual = df_global.groupby('Mes').agg(
+        Total_Eventos=('Evento', 'count'),
+        Positivos_Aedes=('Prob_Num', lambda x: (x > 0.5).sum())
+    ).reset_index()
+
+    fig_lineas = go.Figure()
+    fig_lineas.add_trace(go.Bar(
+        x=df_mensual['Mes'], y=df_mensual['Total_Eventos'],
+        name='Total Ruidos Capturados', marker_color='#AED6F1'
+    ))
+    fig_lineas.add_trace(go.Scatter(
+        x=df_mensual['Mes'], y=df_mensual['Positivos_Aedes'],
+        name='Casos Confirmados Aedes', mode='lines+markers',
+        line=dict(color='#E74C3C', width=3), marker=dict(size=8)
+    ))
+    fig_lineas.update_layout(
+        margin=dict(l=20, r=20, t=20, b=20),
+        height=380,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        barmode='group', plot_bgcolor='white'
+    )
+    fig_lineas.update_yaxes(gridcolor='#F2F4F4')
+    st.plotly_chart(fig_lineas, use_container_width=True)
+
+# ==============================================================================
+# --- FILA 3: ALERTAS + TABLA ---
+# ==============================================================================
+st.markdown("---")
+# Definimos las columnas de la tercera fila
+col_analisis_1, col_analisis_2 = st.columns([4, 6])
+
+with col_analisis_1:
+    st.subheader("🦟 Clasificación de Alertas por Nivel de Confianza")
+
+    def clasificar_alerta(prob):
+        if prob >= 0.75:
+            return "🔴 ALTA (Aedes Confirmado)"
+        elif prob >= 0.40:
+            return "🟡 MEDIA (Mosquito Sospechoso)"
+        else:
+            return "🟢 BAJA (Ruido Ambiental / Descartado)"
+
+    # Evitamos advertencias de SettingWithCopyWarning
+    df_filtrado = df_filtrado.copy()
+    df_filtrado['Categoria_Alerta'] = df_filtrado['Prob_Num'].apply(clasificar_alerta)
+
+    conteo_alertas = df_filtrado['Categoria_Alerta'].value_counts().reset_index()
+    conteo_alertas.columns = ['Nivel de Alerta', 'Cantidad de Audios']
+
+    colores_semaforo = {
+        "🔴 ALTA (Aedes Confirmado)":          "#E74C3C",
+        "🟡 MEDIA (Mosquito Sospechoso)":       "#F4D03F",
+        "🟢 BAJA (Ruido Ambiental / Descartado)": "#2ECC71"
+    }
+
+    fig_barras = px.bar(
+        conteo_alertas,
+        x='Nivel de Alerta', y='Cantidad de Audios',
+        color='Nivel de Alerta',
+        color_discrete_map=colores_semaforo,
+        text_auto=True
+    )
+    fig_barras.update_layout(
+        height=350, margin=dict(l=10, r=10, t=10, b=10),
+        plot_bgcolor='white', showlegend=False
+    )
+    fig_barras.update_yaxes(gridcolor='#F2F4F4')
+    
+    # Renderizado limpio del gráfico
+    st.plotly_chart(fig_barras)
+
+with col_analisis_2:
+    st.subheader("📋 Registros Analizados")
+
+    # Columnas exactas mapeadas desde tu archivo Excel físico
+    cols_tabla = ['Evento', 'Fecha', 'Hora', 'Distancia (mm)',
+                  'Frecuencia (Hz)', 'Amplitud (dB)', 'Probabilidad (%)',
+                  'Armónicos', 'Latencia Red (ms)', 'Latencia CNN', 'Alerta']
+
+    # Se limpian los nombres por si tienen espacios adicionales
+    df_filtrado.columns = [str(c).strip() for c in df_filtrado.columns]
+    cols_disponibles = [c for c in cols_tabla if c in df_filtrado.columns]
+
+    if 'Evento' in df_filtrado.columns:
+        df_mostrar = df_filtrado[cols_disponibles].sort_values(by='Evento', ascending=False)
+    else:
+        df_mostrar = df_filtrado[cols_disponibles]
+
+    st.dataframe(df_mostrar, height=350)
+
