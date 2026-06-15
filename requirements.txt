@@ -12,3 +12,5 @@ scikit-learn
 python-multipart
 PyGithub
 plotly
+folium
+streamlit-folium
